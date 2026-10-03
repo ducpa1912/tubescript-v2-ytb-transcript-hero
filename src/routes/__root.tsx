@@ -126,6 +126,7 @@ function RootComponent() {
     let lastUserId: string | null | undefined;
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       const uid = session?.user?.id ?? null;
+      console.log("[auth-evt]", event, uid);
       if (event === "INITIAL_SESSION") { lastUserId = uid; return; }
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       if (event !== "USER_UPDATED" && uid === lastUserId) return;
