@@ -1,9 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Download, Loader2, Search, X, RotateCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { startScan, processBatch } from "@/lib/scan.functions";
+import { getAccount } from "@/lib/account.functions";
 import { STATUS_LABEL, download, fmtDuration, toCSV, toJSON, toMarkdown, type Row } from "@/lib/export";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -34,6 +36,15 @@ function Index() {
   const [channel, setChannel] = useState<Channel | null>(null);
   const [rows, setRows] = useState<Map<string, DbRow>>(new Map());
   const [notice, setNotice] = useState<string | null>(null);
+  const [user, setUser] = useState<{ id: string } | null>(null);
+  const [authNeeded, setAuthNeeded] = useState(false);
+  const [quotaReached, setQuotaReached] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUser(data.user ? { id: data.user.id } : null));
+  }, []);
+  const account = useQuery({ queryKey: ["account"], enabled: !!user, queryFn: () => getAccount() });
+
   const runRef = useRef(0);
   const lastSync = useRef<string>("1970-01-01");
 
@@ -62,11 +73,14 @@ function Index() {
     const value = input.trim();
     if (!value) return;
     const runId = ++runRef.current;
-    setError(null); setNotice(null); setPhase("discovering"); setRows(new Map()); setChannel(null);
+    setError(null); setNotice(null); setAuthNeeded(false); setQuotaReached(false); setPhase("discovering"); setRows(new Map()); setChannel(null);
     lastSync.current = "1970-01-01";
     try {
       const res = await startScan({ data: { input: value, refresh } });
-      if ("error" in res) throw new Error(res.error);
+      if ("error" in res) {
+        if ("authRequired" in res && res.authRequired) { setAuthNeeded(true); setPhase("idle"); return; }
+        throw new Error(res.error);
+      }
       if (res.kind === "video") {
         const { data } = await supabase.from("videos").select(COLS).eq("id", res.videoId);
         mergeRows((data ?? []) as DbRow[]);
@@ -84,6 +98,7 @@ function Index() {
         try {
           const b = await processBatch({ data: { channelId: res.channelId } });
           await syncChannel(res.channelId, false);
+          if (b.quotaExceeded) { setQuotaReached(true); break; }
           if (b.remaining === 0) break;
           backoff = b.throttled ? Math.min(30000, (backoff || 2000) * 2) : 0;
           if (backoff) { setNotice(`YouTube asked us to slow down — pausing ${Math.round(backoff / 1000)}s`); await new Promise((r) => setTimeout(r, backoff + Math.random() * 500)); setNotice(null); }
@@ -108,6 +123,17 @@ function Index() {
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-10 sm:px-6">
       <header className="mb-10 text-center">
+        <div className="flex justify-end">
+          {user ? (
+            <Link to="/projects" className="font-mono text-xs text-muted-foreground hover:text-foreground">
+              Your projects{account.data ? ` · ${account.data.usedToday}/10 today` : ""}
+            </Link>
+          ) : (
+            <Link to="/auth" className="rounded-md border border-input px-3 py-1.5 text-xs font-medium hover:bg-accent">
+              Sign in
+            </Link>
+          )}
+        </div>
         <h1 className="font-mono text-sm tracking-[0.3em] text-primary uppercase">Tubescript</h1>
         <p className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Every transcript. One paste.</p>
       </header>
@@ -131,6 +157,19 @@ function Index() {
       </form>
 
       {error && <p role="alert" className="mt-4 text-center text-sm text-destructive">{error}</p>}
+
+      {authNeeded && (
+        <div className="mx-auto mt-4 max-w-2xl rounded-xl border bg-card p-4 text-center text-sm">
+          Channel crawls need a free account — single videos still work without one.
+          <Link to="/auth" className="ml-2 font-medium text-primary underline">Sign in with Google</Link>
+        </div>
+      )}
+
+      {quotaReached && (
+        <div className="mx-auto mt-4 max-w-2xl rounded-xl border bg-card p-4 text-center text-sm">
+          You've used your 10 free transcripts for today. Your progress is saved — come back tomorrow or upgrade for 500 transcripts a month.
+        </div>
+      )}
 
       {phase !== "idle" && (
         <Progress phase={phase} resolved={resolved} total={total} notice={notice} channel={channel}
