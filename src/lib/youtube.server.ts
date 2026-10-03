@@ -6,6 +6,8 @@ const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 const WEB_VERSION_FALLBACK = "2.20261001.01.00";
 const ANDROID_CLIENT = { clientName: "ANDROID", clientVersion: "20.10.38", androidSdkVersion: 30, hl: "en", gl: "US" };
+const IOS_CLIENT = { clientName: "IOS", clientVersion: "20.10.4", deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iPhone", osVersion: "18.3.2.22D82", hl: "en", gl: "US" };
+const IOS_UA = "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)";
 
 export type DiscoveredVideo = { id: string; title: string };
 export type ChannelInfo = { channelId: string; title: string; handle: string | null; thumbnail: string | null };
@@ -204,16 +206,23 @@ async function player(videoId: string, client: Record<string, unknown>, ua?: str
 }
 
 /** Fetch metadata + full transcript for one video. Never throws for missing captions. */
-export async function extractVideo(videoId: string): Promise<VideoResult> {
-  const [web, android] = await Promise.all([
+export async function extractVideo(videoId: string, knownTitle?: string | null): Promise<VideoResult> {
+  const [web, first] = await Promise.all([
     player(videoId, { clientName: "WEB", clientVersion: WEB_VERSION_FALLBACK, hl: "en", gl: "US" }).catch(() => null),
     player(videoId, ANDROID_CLIENT, "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip").catch(() => null),
   ]);
+  // Fall back to the iOS client when Android is bot-checked or returns no caption tracks.
+  let android = first;
+  const hasTracks = (p: any) => (p?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? []).length > 0;
+  if (!hasTracks(android)) {
+    const ios = await player(videoId, IOS_CLIENT, IOS_UA).catch(() => null);
+    if (ios && (hasTracks(ios) || !android?.videoDetails)) android = ios;
+  }
   const vd = android?.videoDetails ?? web?.videoDetails ?? {};
   const mf = web?.microformat?.playerMicroformatRenderer ?? {};
   const base: VideoResult = {
     id: videoId,
-    title: vd.title ?? textOf(mf.title) ?? "",
+    title: vd.title || textOf(mf.title) || knownTitle || "",
     publishDate: mf.publishDate ?? mf.uploadDate ?? null,
     views: vd.viewCount != null ? Number(vd.viewCount) : mf.viewCount != null ? Number(mf.viewCount) : null,
     durationSeconds: vd.lengthSeconds != null ? Number(vd.lengthSeconds) : mf.lengthSeconds != null ? Number(mf.lengthSeconds) : null,
@@ -225,12 +234,16 @@ export async function extractVideo(videoId: string): Promise<VideoResult> {
   };
   if (!vd.videoId && !mf.title) {
     const reason = android?.playabilityStatus?.reason ?? web?.playabilityStatus?.reason ?? "Video unavailable";
+    // YouTube blocking our server is temporary — retry later instead of marking the video unavailable.
+    if (/not a bot|sign in to confirm/i.test(reason) || (!android && !web)) throw new Error(`BOT_CHECK: ${reason}`);
     return { ...base, status: "unavailable", statusDetail: reason };
   }
   const tracks: any[] = android?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
   if (!tracks.length) {
     const s = android?.playabilityStatus?.status;
-    return { ...base, statusDetail: s && s !== "OK" ? android?.playabilityStatus?.reason ?? s : "No captions available" };
+    const reason = android?.playabilityStatus?.reason ?? "";
+    if (/not a bot|sign in to confirm/i.test(reason)) throw new Error(`BOT_CHECK: ${reason}`);
+    return { ...base, statusDetail: s && s !== "OK" ? reason || s : "No captions available" };
   }
   // Prefer: manual English > auto English > manual any > auto any
   const score = (t: any) => (t.kind === "asr" ? 0 : 2) + (String(t.languageCode).startsWith("en") ? 4 : 0);
