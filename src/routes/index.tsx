@@ -146,7 +146,7 @@ function Index() {
           autoFocus
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="youtube.com/@channel  or  a video link"
+          placeholder={user ? "youtube.com/@channel  or  a video link" : "Paste a YouTube video link"}
           aria-label="YouTube channel or video URL"
           className="min-w-0 flex-1 bg-transparent px-3 py-3 font-mono text-sm outline-none placeholder:text-muted-foreground"
         />
