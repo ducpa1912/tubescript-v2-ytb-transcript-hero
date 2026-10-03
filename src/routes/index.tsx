@@ -55,6 +55,7 @@ function Index() {
   const account = useQuery({ queryKey: ["account"], enabled: !!user, queryFn: () => getAccount() });
 
   const runRef = useRef(0);
+  const runRefLatest = useRef<(refresh?: boolean, override?: string) => Promise<void>>(async () => {});
   const lastSync = useRef<string>("1970-01-01");
 
   const mergeRows = (list: DbRow[]) =>
@@ -123,6 +124,8 @@ function Index() {
       if (runRef.current === runId) { setError((e as Error).message); setPhase("idle"); }
     }
   };
+
+  runRefLatest.current = run;
 
   const list = useMemo(() => [...rows.values()], [rows]);
   const total = channel ? Math.max(channel.video_count, list.length) : list.length;
