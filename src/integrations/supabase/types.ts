@@ -44,6 +44,122 @@ export type Database = {
         }
         Relationships: []
       }
+      credit_ledger: {
+        Row: {
+          created_at: string
+          delta: number
+          description: string | null
+          id: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          delta: number
+          description?: string | null
+          id?: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          delta?: number
+          description?: string | null
+          id?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      daily_usage: {
+        Row: {
+          day: string
+          used: number
+          user_id: string
+        }
+        Insert: {
+          day?: string
+          used?: number
+          user_id: string
+        }
+        Update: {
+          day?: string
+          used?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          email: string | null
+          plan: Database["public"]["Enums"]["plan_tier"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          plan?: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          plan?: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      projects: {
+        Row: {
+          channel_id: string
+          channel_title: string
+          created_at: string
+          id: string
+          thumbnail: string | null
+          updated_at: string
+          user_id: string
+          video_count: number
+        }
+        Insert: {
+          channel_id: string
+          channel_title?: string
+          created_at?: string
+          id?: string
+          thumbnail?: string | null
+          updated_at?: string
+          user_id: string
+          video_count?: number
+        }
+        Update: {
+          channel_id?: string
+          channel_title?: string
+          created_at?: string
+          id?: string
+          thumbnail?: string | null
+          updated_at?: string
+          user_id?: string
+          video_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "projects_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       videos: {
         Row: {
           attempts: number
@@ -103,6 +219,24 @@ export type Database = {
           },
         ]
       }
+      wallets: {
+        Row: {
+          credits: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          credits?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          credits?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -111,7 +245,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      plan_tier: "free" | "paid"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -238,6 +372,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      plan_tier: ["free", "paid"],
+    },
   },
 } as const

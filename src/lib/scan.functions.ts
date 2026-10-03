@@ -1,11 +1,34 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeader } from "@tanstack/start-server-core";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const BATCH = 9; // videos per call; 3 at a time x 2 player calls = 6 outbound (Worker cap)
 const MAX_ATTEMPTS = 3;
+const FREE_DAILY = 10; // registered users: 10 video transcripts per day
 
 async function admin() {
   return (await import("@/integrations/supabase/client.server")).supabaseAdmin;
+}
+
+/** Resolve the caller from the request bearer token; null when not signed in. */
+async function callerUserId(): Promise<string | null> {
+  const header = getRequestHeader("Authorization");
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
+  if (!token) return null;
+  const key = process.env['SUPABASE_PUBLISHABLE_KEY']!;
+  const client = createClient(process.env['SUPABASE_URL']!, key, { auth: { persistSession: false } });
+  const { data } = await client.auth.getUser(token);
+  return data.user?.id ?? null;
+}
+
+type UserMeta = { email: string | null; display_name: string | null; avatar_url: string | null };
+function metaFromClaims(claims: Record<string, unknown> | null | undefined): UserMeta {
+  const meta = (claims?.["user_metadata"] ?? null) as Record<string, unknown> | null;
+  const read = (k: string) => (meta && typeof meta[k] === "string" && meta[k] ? (meta[k] as string) : null);
+  const email = claims && typeof claims["email"] === "string" ? (claims["email"] as string) : read("email");
+  return { email, display_name: read("full_name") ?? read("name"), avatar_url: read("avatar_url") ?? read("picture") };
 }
 
 /** Resolve input, discover videos and register them. Cached channels skip discovery unless refresh is set. */
@@ -25,6 +48,12 @@ export const startScan = createServerFn({ method: "POST" })
       return { kind: "video" as const, videoId: parsed.videoId };
     }
 
+    // Channel crawls are for signed-in users only.
+    const userId = await callerUserId();
+    if (!userId) {
+      return { error: "Sign in to crawl whole channels — it's free.", authRequired: true } as const;
+    }
+
     let found;
     try { found = await yt.discoverChannel(parsed.url); } catch (e) { return { error: (e as Error).message } as const; }
     const { channel, videos } = found;
@@ -33,6 +62,13 @@ export const startScan = createServerFn({ method: "POST" })
       id: channel.channelId, title: channel.title, handle: channel.handle, thumbnail: channel.thumbnail,
       video_count: videos.length, updated_at: new Date().toISOString(),
     });
+    // Save the crawl as the user's project so they can resume or update later.
+    const { data: tokenMeta } = await callerProfile();
+    await db.from("profiles").upsert({ user_id: userId, ...tokenMeta }, { onConflict: "user_id", ignoreDuplicates: true });
+    await db.from("projects").upsert({
+      user_id: userId, channel_id: channel.channelId, channel_title: channel.title,
+      thumbnail: channel.thumbnail, video_count: videos.length, updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id,channel_id" });
     // Register new videos as pending; keep already-resolved ones (cache).
     const known = new Set<string>();
     for (let i = 0; i < videos.length; i += 500) {
@@ -54,15 +90,49 @@ export const startScan = createServerFn({ method: "POST" })
     return { kind: "channel" as const, channelId: channel.channelId, cached: !!existing.data, newVideos: fresh.length };
   });
 
+async function callerProfile(): Promise<{ data: UserMeta }> {
+  const header = getRequestHeader("Authorization");
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
+  if (!token) return { data: { email: null, display_name: null, avatar_url: null } };
+  const key = process.env['SUPABASE_PUBLISHABLE_KEY']!;
+  const client = createClient(process.env['SUPABASE_URL']!, key, { auth: { persistSession: false } });
+  const { data } = await client.auth.getUser(token);
+  const claims = data.user ? { email: data.user.email, user_metadata: data.user.user_metadata } : null;
+  return { data: metaFromClaims(claims as Record<string, unknown> | null) };
+}
+
 /** Process one paced batch of pending videos. The browser calls this repeatedly until remaining = 0. */
 export const processBatch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ channelId: z.string().regex(/^UC[\w-]{22}$/) }).parse(d))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const yt = await import("./youtube.server");
     const db = await admin();
+    const { supabase, userId, claims } = context;
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Make sure the profile row exists (projects reference it).
+    await db.from("profiles").upsert({ user_id: userId, ...metaFromClaims(claims) }, { onConflict: "user_id", ignoreDuplicates: true });
+
+    const [{ data: usage }, { data: wallet }] = await Promise.all([
+      supabase.from("daily_usage").select("used").eq("user_id", userId).eq("day", today).maybeSingle(),
+      supabase.from("wallets").select("credits").eq("user_id", userId).maybeSingle(),
+    ]);
+    const used = usage?.used ?? 0;
+    const credits = wallet?.credits ?? 0;
+    const freeLeft = Math.max(0, FREE_DAILY - used);
+    const allowance = freeLeft + credits;
+    if (allowance <= 0) {
+      const { count } = await db.from("videos").select("id", { count: "exact", head: true })
+        .eq("channel_id", data.channelId).eq("status", "pending");
+      return { processed: 0, remaining: count ?? 0, throttled: false, quotaExceeded: true, freeLeft: 0, credits };
+    }
+
+    const limit = Math.min(BATCH, allowance);
     const { data: todo, error } = await db.from("videos").select("id,attempts")
-      .eq("channel_id", data.channelId).eq("status", "pending").order("position").limit(BATCH);
+      .eq("channel_id", data.channelId).eq("status", "pending").order("position").limit(limit);
     if (error) throw new Error(error.message);
+
     let throttled = false;
     await yt.pool(todo ?? [], 3, async (v) => {
       try {
@@ -77,9 +147,24 @@ export const processBatch = createServerFn({ method: "POST" })
         }).eq("id", v.id);
       }
     });
+
+    const processed = todo?.length ?? 0;
+    const freeUsed = Math.min(freeLeft, processed);
+    const creditUsed = processed - freeUsed;
+    if (freeUsed > 0) {
+      await db.from("daily_usage").upsert({ user_id: userId, day: today, used: used + freeUsed });
+    }
+    if (creditUsed > 0) {
+      await db.from("wallets").upsert({ user_id: userId, credits: credits - creditUsed, updated_at: new Date().toISOString() });
+      await db.from("credit_ledger").insert({
+        user_id: userId, delta: -creditUsed, type: "crawl",
+        description: `Channel crawl — ${creditUsed} videos beyond the free daily quota`,
+      });
+    }
+
     const { count } = await db.from("videos").select("id", { count: "exact", head: true })
       .eq("channel_id", data.channelId).eq("status", "pending");
-    return { processed: todo?.length ?? 0, remaining: count ?? 0, throttled };
+    return { processed, remaining: count ?? 0, throttled, quotaExceeded: false, freeLeft: Math.max(0, freeLeft - freeUsed), credits: credits - creditUsed };
   });
 
 function toRow(r: import("./youtube.server").VideoResult) {
