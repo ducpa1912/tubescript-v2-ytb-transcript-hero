@@ -71,10 +71,21 @@ export const startScan = createServerFn({ method: "POST" })
     }, { onConflict: "user_id,channel_id" });
     // Register new videos as pending; keep already-resolved ones (cache).
     const known = new Set<string>();
+    const titleOf = new Map(videos.map((v) => [v.id, v.title]));
     for (let i = 0; i < videos.length; i += 500) {
       const ids = videos.slice(i, i + 500).map((v) => v.id);
-      const { data: rows } = await db.from("videos").select("id").in("id", ids);
-      rows?.forEach((r) => known.add(r.id));
+      const { data: rows } = await db.from("videos").select("id,title,status,status_detail").in("id", ids);
+      for (const r of rows ?? []) {
+        known.add(r.id);
+        // Repair rows hit by a temporary YouTube bot check: restore the title and requeue.
+        const blocked = r.status === "unavailable" && /not a bot|sign in to confirm/i.test(r.status_detail ?? "");
+        if (!r.title || blocked) {
+          await db.from("videos").update({
+            ...(r.title ? {} : { title: titleOf.get(r.id) ?? "" }),
+            ...(blocked ? { status: "pending", attempts: 0, status_detail: null } : {}),
+          }).eq("id", r.id);
+        }
+      }
     }
     const fresh = videos.map((v, i) => ({ v, i })).filter(({ v }) => !known.has(v.id));
     for (let i = 0; i < fresh.length; i += 500) {
@@ -129,26 +140,34 @@ export const processBatch = createServerFn({ method: "POST" })
     }
 
     const limit = Math.min(BATCH, allowance);
-    const { data: todo, error } = await db.from("videos").select("id,attempts")
+    const { data: todo, error } = await db.from("videos").select("id,attempts,title")
       .eq("channel_id", data.channelId).eq("status", "pending").order("position").limit(limit);
     if (error) throw new Error(error.message);
 
     let throttled = false;
+    let resolvedCount = 0;
     await yt.pool(todo ?? [], 3, async (v) => {
       try {
-        const r = await yt.extractVideo(v.id);
+        const r = await yt.extractVideo(v.id, v.title);
         await db.from("videos").update({ ...toRow(r), attempts: v.attempts + 1 }).eq("id", v.id);
+        resolvedCount++;
       } catch (e) {
         const msg = (e as Error).message;
-        if (msg.includes("429")) throttled = true;
+        // Bot checks / rate limits are temporary: keep the video pending and don't charge for it.
+        if (msg.includes("429") || msg.startsWith("BOT_CHECK")) {
+          throttled = true;
+          await db.from("videos").update({ status_detail: msg, updated_at: new Date().toISOString() }).eq("id", v.id);
+          return;
+        }
         const final = v.attempts + 1 >= MAX_ATTEMPTS;
         await db.from("videos").update({
           attempts: v.attempts + 1, status: final ? "failed" : "pending", status_detail: msg, updated_at: new Date().toISOString(),
         }).eq("id", v.id);
+        if (final) resolvedCount++;
       }
     });
 
-    const processed = todo?.length ?? 0;
+    const processed = resolvedCount;
     const freeUsed = Math.min(freeLeft, processed);
     const creditUsed = processed - freeUsed;
     if (freeUsed > 0) {

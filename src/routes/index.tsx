@@ -171,19 +171,30 @@ function Index() {
         </div>
       )}
 
-      {quotaReached && (
-        <div className="mx-auto mt-4 max-w-2xl rounded-xl border bg-card p-4 text-center text-sm">
-          You've used your 10 free transcripts for today. Your progress is saved — come back tomorrow or upgrade for 500 transcripts a month.
-        </div>
-      )}
+      {quotaReached && <UpgradeCard locked={list.filter((r) => r.status === "pending").length} />}
 
       {phase !== "idle" && (
         <Progress phase={phase} resolved={resolved} total={total} notice={notice} channel={channel}
           onRefresh={() => run(true)} />
       )}
 
-      {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} />}
+      {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={quotaReached} />}
     </main>
+  );
+}
+
+function UpgradeCard({ locked }: { locked: number }) {
+  return (
+    <div className="mx-auto mt-4 flex max-w-2xl flex-col items-center gap-3 rounded-xl border bg-card p-5 text-center text-sm">
+      <p>
+        You've used your 10 free transcripts for today.
+        {locked > 0 && <> <span className="font-medium">{locked} more videos</span> are waiting — your progress is saved.</>}
+      </p>
+      <Button size="lg" className="rounded-xl font-semibold" disabled title="Checkout is being set up">
+        Get 500 transcripts — $5
+      </Button>
+      <p className="text-xs text-muted-foreground">Checkout opens soon. Or come back tomorrow for 10 more free.</p>
+    </div>
   );
 }
 
@@ -224,7 +235,7 @@ const STATUS_STYLE: Record<string, string> = {
   pending: "text-muted-foreground",
 };
 
-function ResultsTable({ rows, heading, ready }: { rows: DbRow[]; heading: string; ready: boolean }) {
+function ResultsTable({ rows, heading, ready, locked = false }: { rows: DbRow[]; heading: string; ready: boolean; locked?: boolean }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "position", dir: 1 });
   const [open, setOpen] = useState<DbRow | null>(null);
@@ -310,21 +321,23 @@ function ResultsTable({ rows, heading, ready }: { rows: DbRow[]; heading: string
         <div style={{ height: virt.getTotalSize(), position: "relative" }}>
           {virt.getVirtualItems().map((vi) => {
             const r = view[vi.index]!;
+            const isLocked = locked && r.status === "pending";
+            const meta = isLocked ? "blur-sm select-none" : "";
             return (
               <button
                 key={r.id}
                 data-row
-                onClick={() => setOpen(r)}
-                className={`${grid} absolute inset-x-0 h-[52px] border-b border-border/50 text-left text-sm hover:bg-accent/50`}
+                onClick={() => !isLocked && setOpen(r)}
+                className={`${grid} absolute inset-x-0 h-[52px] border-b border-border/50 text-left text-sm ${isLocked ? "cursor-default" : "hover:bg-accent/50"}`}
                 style={{ transform: `translateY(${vi.start}px)` }}
               >
                 <span className="font-mono text-xs text-muted-foreground">{r.position + 1}</span>
                 <span className="truncate">{r.title || r.id}</span>
-                <span className="font-mono text-xs text-muted-foreground">{r.publish_date?.slice(0, 10) ?? "—"}</span>
-                <span className="text-right font-mono text-xs">{r.views != null ? compact(r.views) : "—"}</span>
-                <span className="text-right font-mono text-xs">{fmtDuration(r.duration_seconds)}</span>
+                <span className={`font-mono text-xs text-muted-foreground ${meta}`}>{isLocked ? "2026-01-01" : r.publish_date?.slice(0, 10) ?? "—"}</span>
+                <span className={`text-right font-mono text-xs ${meta}`}>{isLocked ? "12K" : r.views != null ? compact(r.views) : "—"}</span>
+                <span className={`text-right font-mono text-xs ${meta}`}>{isLocked ? "9:99" : fmtDuration(r.duration_seconds)}</span>
                 <span className={`truncate font-mono text-xs ${STATUS_STYLE[r.status]}`}>
-                  {r.status === "pending" ? <Loader2 className="inline size-3 animate-spin" /> : r.status === "ok" ? `${r.word_count.toLocaleString()} words` : STATUS_LABEL[r.status]}
+                  {isLocked ? "Locked · upgrade" : r.status === "pending" ? <Loader2 className="inline size-3 animate-spin" /> : r.status === "ok" ? `${r.word_count.toLocaleString()} words` : STATUS_LABEL[r.status]}
                 </span>
               </button>
             );
