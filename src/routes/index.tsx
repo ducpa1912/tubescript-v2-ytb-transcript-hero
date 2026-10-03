@@ -156,6 +156,12 @@ function Index() {
         </Button>
       </form>
 
+      {!user && (
+        <p className="mx-auto mt-3 max-w-2xl text-center text-xs text-muted-foreground">
+          * <Link to="/auth" className="text-primary underline">Register free</Link> to paste channel links, save every crawl as a project, and get 10 video transcripts a day.
+        </p>
+      )}
+
       {error && <p role="alert" className="mt-4 text-center text-sm text-destructive">{error}</p>}
 
       {authNeeded && (
