@@ -41,11 +41,21 @@ function Index() {
   const [quotaReached, setQuotaReached] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user ? { id: data.user.id } : null));
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user ? { id: data.user.id } : null);
+      // Opening a saved project: /?channel=UC... resumes it automatically.
+      const ch = new URLSearchParams(window.location.search).get("channel");
+      if (ch && /^UC[\w-]{22}$/.test(ch)) {
+        const url = `https://www.youtube.com/channel/${ch}`;
+        setInput(url);
+        void runRefLatest.current(false, url);
+      }
+    });
   }, []);
   const account = useQuery({ queryKey: ["account"], enabled: !!user, queryFn: () => getAccount() });
 
   const runRef = useRef(0);
+  const runRefLatest = useRef<(refresh?: boolean, override?: string) => Promise<void>>(async () => {});
   const lastSync = useRef<string>("1970-01-01");
 
   const mergeRows = (list: DbRow[]) =>
@@ -69,8 +79,8 @@ function Index() {
     }
   }, []);
 
-  const run = async (refresh = false) => {
-    const value = input.trim();
+  const run = async (refresh = false, override?: string) => {
+    const value = (override ?? input).trim();
     if (!value) return;
     const runId = ++runRef.current;
     setError(null); setNotice(null); setAuthNeeded(false); setQuotaReached(false); setPhase("discovering"); setRows(new Map()); setChannel(null);
@@ -114,6 +124,8 @@ function Index() {
       if (runRef.current === runId) { setError((e as Error).message); setPhase("idle"); }
     }
   };
+
+  runRefLatest.current = run;
 
   const list = useMemo(() => [...rows.values()], [rows]);
   const total = channel ? Math.max(channel.video_count, list.length) : list.length;
