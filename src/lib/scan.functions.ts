@@ -55,7 +55,17 @@ export const startScan = createServerFn({ method: "POST" })
     }
 
     let found;
-    try { found = await yt.discoverChannel(parsed.url); } catch (e) { return { error: (e as Error).message } as const; }
+    try { found = await yt.discoverChannel(parsed.url); } catch (e) {
+      // YouTube refused discovery (often a temporary bot check). If we already know this
+      // channel, resume from the saved video list instead of failing.
+      const id = parsed.url.match(/channel\/(UC[\w-]{22})/)?.[1];
+      const cached = id ? await db.from("channels").select("id").eq("id", id).maybeSingle() : null;
+      if (!id || !cached?.data) return { error: (e as Error).message } as const;
+      await db.from("videos").update({ status: "pending", attempts: 0, status_detail: null })
+        .eq("channel_id", id).eq("status", "unavailable").ilike("status_detail", "%not a bot%");
+      await db.from("projects").update({ updated_at: new Date().toISOString() }).eq("user_id", userId).eq("channel_id", id);
+      return { kind: "channel" as const, channelId: id, cached: true, newVideos: 0 };
+    }
     const { channel, videos } = found;
     const existing = await db.from("channels").select("id").eq("id", channel.channelId).maybeSingle();
     await db.from("channels").upsert({

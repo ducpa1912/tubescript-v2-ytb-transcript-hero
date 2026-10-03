@@ -120,10 +120,20 @@ function RootComponent() {
   const router = useRouter();
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    // Only react when the signed-in identity actually changes. Supabase re-emits
+    // SIGNED_IN for an already-stored session, which otherwise loops
+    // invalidate -> refetch -> SIGNED_IN forever for returning users.
+    let lastUserId: string | null | undefined;
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      const uid = session?.user?.id ?? null;
+      if (event === "INITIAL_SESSION") { lastUserId = uid; return; }
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
-      router.invalidate();
-      if (event !== "SIGNED_OUT") queryClient.invalidateQueries();
+      if (event !== "USER_UPDATED" && uid === lastUserId) return;
+      lastUserId = uid;
+      setTimeout(() => {
+        router.invalidate();
+        if (event !== "SIGNED_OUT") queryClient.invalidateQueries();
+      }, 0);
     });
     return () => sub.subscription.unsubscribe();
   }, [router, queryClient]);
