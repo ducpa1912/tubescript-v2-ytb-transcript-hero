@@ -41,7 +41,16 @@ function Index() {
   const [quotaReached, setQuotaReached] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user ? { id: data.user.id } : null));
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user ? { id: data.user.id } : null);
+      // Opening a saved project: /?channel=UC... resumes it automatically.
+      const ch = new URLSearchParams(window.location.search).get("channel");
+      if (ch && /^UC[\w-]{22}$/.test(ch)) {
+        const url = `https://www.youtube.com/channel/${ch}`;
+        setInput(url);
+        void runRefLatest.current(false, url);
+      }
+    });
   }, []);
   const account = useQuery({ queryKey: ["account"], enabled: !!user, queryFn: () => getAccount() });
 
@@ -69,8 +78,8 @@ function Index() {
     }
   }, []);
 
-  const run = async (refresh = false) => {
-    const value = input.trim();
+  const run = async (refresh = false, override?: string) => {
+    const value = (override ?? input).trim();
     if (!value) return;
     const runId = ++runRef.current;
     setError(null); setNotice(null); setAuthNeeded(false); setQuotaReached(false); setPhase("discovering"); setRows(new Map()); setChannel(null);
