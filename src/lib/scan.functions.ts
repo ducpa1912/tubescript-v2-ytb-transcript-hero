@@ -62,8 +62,6 @@ export const startScan = createServerFn({ method: "POST" })
       video_count: videos.length, updated_at: new Date().toISOString(),
     });
     // Save the crawl as the user's project so they can resume or update later.
-    const meta = metaFromClaims(null); // populated below via user lookup if needed
-    void meta;
     const { data: tokenMeta } = await callerProfile();
     await db.from("profiles").upsert({ user_id: userId, ...tokenMeta }, { onConflict: "user_id", ignoreDuplicates: true });
     await db.from("projects").upsert({
