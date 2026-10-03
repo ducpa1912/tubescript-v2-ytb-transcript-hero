@@ -146,7 +146,7 @@ function Index() {
           autoFocus
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="youtube.com/@channel  or  a video link"
+          placeholder={user ? "youtube.com/@channel  or  a video link" : "Paste a YouTube video link"}
           aria-label="YouTube channel or video URL"
           className="min-w-0 flex-1 bg-transparent px-3 py-3 font-mono text-sm outline-none placeholder:text-muted-foreground"
         />
@@ -155,6 +155,12 @@ function Index() {
           {busy ? "Working" : "Extract"}
         </Button>
       </form>
+
+      {!user && (
+        <p className="mx-auto mt-3 max-w-2xl text-center text-xs text-muted-foreground">
+          * <Link to="/auth" className="text-primary underline">Register free</Link> to paste channel links, save every crawl as a project, and get 10 video transcripts a day.
+        </p>
+      )}
 
       {error && <p role="alert" className="mt-4 text-center text-sm text-destructive">{error}</p>}
 
