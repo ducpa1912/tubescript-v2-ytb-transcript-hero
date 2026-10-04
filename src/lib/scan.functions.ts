@@ -226,3 +226,26 @@ function toRow(r: import("./youtube.server").VideoResult) {
     updated_at: new Date().toISOString(),
   };
 }
+
+type Saved = { title: string; views: number | null; duration_seconds: number | null; publish_date: string | null };
+
+/** Never replace an already-saved field with an empty one. */
+function keepSaved<T extends ReturnType<typeof toRow>>(row: T, saved: Saved): T {
+  return {
+    ...row,
+    title: row.title || saved.title,
+    views: row.views ?? saved.views,
+    duration_seconds: row.duration_seconds ?? saved.duration_seconds,
+    publish_date: row.publish_date ?? saved.publish_date,
+  };
+}
+
+/** From a blocked fetch, only fill fields that are still empty. */
+function fillMissing(r: import("./youtube.server").VideoResult, saved: Saved) {
+  const patch: Record<string, unknown> = {};
+  if (!saved.title && r.title) patch.title = r.title;
+  if (saved.views == null && r.views != null) patch.views = r.views;
+  if (saved.duration_seconds == null && r.durationSeconds != null) patch.duration_seconds = r.durationSeconds;
+  if (saved.publish_date == null && r.publishDate) patch.publish_date = r.publishDate;
+  return patch;
+}
