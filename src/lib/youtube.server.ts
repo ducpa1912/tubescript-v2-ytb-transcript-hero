@@ -38,7 +38,7 @@ export function parseViews(s: string | null | undefined): number | null {
 }
 
 function stringsIn(node: any, out: string[] = [], depth = 0): string[] {
-  if (depth > 12 || node == null) return out;
+  if (depth > 30 || node == null) return out;
   if (typeof node === "string") { out.push(node); return out; }
   if (Array.isArray(node)) { for (const x of node) stringsIn(x, out, depth + 1); return out; }
   if (typeof node === "object") for (const k of Object.keys(node)) {
