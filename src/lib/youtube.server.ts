@@ -9,7 +9,7 @@ const ANDROID_CLIENT = { clientName: "ANDROID", clientVersion: "20.10.38", andro
 const IOS_CLIENT = { clientName: "IOS", clientVersion: "20.10.4", deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iPhone", osVersion: "18.3.2.22D82", hl: "en", gl: "US" };
 const IOS_UA = "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)";
 
-export type DiscoveredVideo = { id: string; title: string; durationSeconds?: number | null; views?: number | null };
+export type DiscoveredVideo = { id: string; title: string; durationSeconds?: number | null; views?: number | null; publishDate?: string | null };
 
 /** YouTube refused to serve this video to our server. Carries whatever metadata did come through. */
 export class BotCheckError extends Error {

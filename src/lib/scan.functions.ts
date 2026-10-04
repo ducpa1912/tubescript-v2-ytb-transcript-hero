@@ -92,7 +92,7 @@ export const startScan = createServerFn({ method: "POST" })
         const d = byId.get(r.id);
         // Repair rows hit by a temporary YouTube bot check: requeue them.
         const blocked = r.status === "unavailable" && /not a bot|sign in to confirm/i.test(r.status_detail ?? "");
-        const patch: Record<string, unknown> = {};
+        const patch: VideoPatch = {};
         if (!r.title && d?.title) patch.title = d.title;
         if (r.views == null && d?.views != null) patch.views = d.views;
         if (r.duration_seconds == null && d?.durationSeconds != null) patch.duration_seconds = d.durationSeconds;
@@ -227,6 +227,7 @@ function toRow(r: import("./youtube.server").VideoResult) {
   };
 }
 
+type VideoPatch = { title?: string; views?: number; duration_seconds?: number; publish_date?: string; status?: string; attempts?: number; status_detail?: string | null };
 type Saved = { title: string; views: number | null; duration_seconds: number | null; publish_date: string | null };
 
 /** Never replace an already-saved field with an empty one. */
@@ -242,7 +243,7 @@ function keepSaved<T extends ReturnType<typeof toRow>>(row: T, saved: Saved): T 
 
 /** From a blocked fetch, only fill fields that are still empty. */
 function fillMissing(r: import("./youtube.server").VideoResult, saved: Saved) {
-  const patch: Record<string, unknown> = {};
+  const patch: VideoPatch = {};
   if (!saved.title && r.title) patch.title = r.title;
   if (saved.views == null && r.views != null) patch.views = r.views;
   if (saved.duration_seconds == null && r.durationSeconds != null) patch.duration_seconds = r.durationSeconds;
