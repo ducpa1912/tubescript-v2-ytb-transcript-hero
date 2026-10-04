@@ -173,10 +173,11 @@ export async function discoverChannel(channelUrl: string, maxPages = 200): Promi
     for (const l of walk(node, "lockupViewModel")) {
       const id = l?.contentId;
       if (id && l.contentType === "LOCKUP_CONTENT_TYPE_VIDEO" && !seen.has(id)) {
-        const strings = stringsIn(l);
+        const title = l?.metadata?.lockupMetadataViewModel?.title?.content ?? "";
+        const strings = stringsIn(l).filter((s) => s !== title);
         const dur = strings.map(parseDuration).find((n) => n != null) ?? null;
         const views = strings.filter((s) => /views?$/i.test(s) || /^[\d.,]+\s*[KMB]?$/i.test(s.trim())).map(parseViews).find((n) => n != null) ?? null;
-        seen.set(id, { id, title: l?.metadata?.lockupMetadataViewModel?.title?.content ?? "", durationSeconds: dur, views });
+        seen.set(id, { id, title, durationSeconds: dur, views });
       }
     }
     let token: string | null = null;
