@@ -80,27 +80,34 @@ export const startScan = createServerFn({ method: "POST" })
       thumbnail: channel.thumbnail, video_count: videos.length, updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,channel_id" });
     // Register new videos as pending; keep already-resolved ones (cache).
+    // Saved fields are never overwritten — discovery only fills in what's still missing.
     const known = new Set<string>();
-    const titleOf = new Map(videos.map((v) => [v.id, v.title]));
+    const byId = new Map(videos.map((v) => [v.id, v]));
     for (let i = 0; i < videos.length; i += 500) {
       const ids = videos.slice(i, i + 500).map((v) => v.id);
-      const { data: rows } = await db.from("videos").select("id,title,status,status_detail").in("id", ids);
+      const { data: rows } = await db.from("videos")
+        .select("id,title,status,status_detail,views,duration_seconds,publish_date").in("id", ids);
       for (const r of rows ?? []) {
         known.add(r.id);
-        // Repair rows hit by a temporary YouTube bot check: restore the title and requeue.
+        const d = byId.get(r.id);
+        // Repair rows hit by a temporary YouTube bot check: requeue them.
         const blocked = r.status === "unavailable" && /not a bot|sign in to confirm/i.test(r.status_detail ?? "");
-        if (!r.title || blocked) {
-          await db.from("videos").update({
-            ...(r.title ? {} : { title: titleOf.get(r.id) ?? "" }),
-            ...(blocked ? { status: "pending", attempts: 0, status_detail: null } : {}),
-          }).eq("id", r.id);
-        }
+        const patch: Record<string, unknown> = {};
+        if (!r.title && d?.title) patch.title = d.title;
+        if (r.views == null && d?.views != null) patch.views = d.views;
+        if (r.duration_seconds == null && d?.durationSeconds != null) patch.duration_seconds = d.durationSeconds;
+        if (r.publish_date == null && d?.publishDate) patch.publish_date = d.publishDate;
+        if (blocked) Object.assign(patch, { status: "pending", attempts: 0, status_detail: null });
+        if (Object.keys(patch).length) await db.from("videos").update(patch).eq("id", r.id);
       }
     }
     const fresh = videos.map((v, i) => ({ v, i })).filter(({ v }) => !known.has(v.id));
     for (let i = 0; i < fresh.length; i += 500) {
       const { error } = await db.from("videos").insert(
-        fresh.slice(i, i + 500).map(({ v, i: pos }) => ({ id: v.id, channel_id: channel.channelId, title: v.title, position: pos, status: "pending" })),
+        fresh.slice(i, i + 500).map(({ v, i: pos }) => ({
+          id: v.id, channel_id: channel.channelId, title: v.title, position: pos, status: "pending",
+          views: v.views ?? null, duration_seconds: v.durationSeconds ?? null, publish_date: v.publishDate ?? null,
+        })),
       );
       if (error) return { error: error.message } as const;
     }
@@ -150,23 +157,31 @@ export const processBatch = createServerFn({ method: "POST" })
     }
 
     const limit = Math.min(BATCH, allowance);
-    const { data: todo, error } = await db.from("videos").select("id,attempts,title")
+    const { data: todo, error } = await db.from("videos")
+      .select("id,attempts,title,views,duration_seconds,publish_date,transcript,caption_lang")
       .eq("channel_id", data.channelId).eq("status", "pending").order("position").limit(limit);
     if (error) throw new Error(error.message);
 
     let throttled = false;
     let resolvedCount = 0;
     await yt.pool(todo ?? [], 3, async (v) => {
+      // A transcript we already have is never fetched (or charged) again.
+      if (v.transcript) {
+        await db.from("videos").update({ status: "ok", status_detail: null, updated_at: new Date().toISOString() }).eq("id", v.id);
+        return;
+      }
       try {
         const r = await yt.extractVideo(v.id, v.title);
-        await db.from("videos").update({ ...toRow(r), attempts: v.attempts + 1 }).eq("id", v.id);
+        await db.from("videos").update({ ...keepSaved(toRow(r), v), attempts: v.attempts + 1 }).eq("id", v.id);
         resolvedCount++;
       } catch (e) {
         const msg = (e as Error).message;
-        // Bot checks / rate limits are temporary: keep the video pending and don't charge for it.
+        // Bot checks / rate limits are temporary: keep the video pending and don't charge for it,
+        // but keep any details (date, views, length) that did come through.
         if (msg.includes("429") || msg.startsWith("BOT_CHECK")) {
           throttled = true;
-          await db.from("videos").update({ status_detail: msg, updated_at: new Date().toISOString() }).eq("id", v.id);
+          const partial = e instanceof yt.BotCheckError ? fillMissing(e.partial, v) : {};
+          await db.from("videos").update({ ...partial, status_detail: msg, updated_at: new Date().toISOString() }).eq("id", v.id);
           return;
         }
         const final = v.attempts + 1 >= MAX_ATTEMPTS;
