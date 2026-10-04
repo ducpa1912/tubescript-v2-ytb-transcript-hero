@@ -212,8 +212,17 @@ export async function discoverChannel(channelUrl: string, maxPages = 200): Promi
       for (const e of xml.split("<entry>").slice(1)) {
         const id = e.match(/<yt:videoId>([^<]+)</)?.[1];
         const link = e.match(/<link rel="alternate" href="([^"]+)"/)?.[1] ?? "";
-        if (id && !seen.has(id) && !link.includes("/shorts/"))
-          seen.set(id, { id, title: decodeXml(e.match(/<title>([^<]*)</)?.[1] ?? "") });
+        if (!id || link.includes("/shorts/")) continue;
+        const publishDate = e.match(/<published>([^<]+)</)?.[1] ?? null;
+        const v = e.match(/<media:statistics views="(\d+)"/)?.[1];
+        const prev = seen.get(id);
+        seen.set(id, {
+          id,
+          title: prev?.title || decodeXml(e.match(/<title>([^<]*)</)?.[1] ?? ""),
+          durationSeconds: prev?.durationSeconds ?? null,
+          views: v != null ? Number(v) : prev?.views ?? null, // feed views are exact
+          publishDate,
+        });
       }
     }
   } catch { /* feed is best-effort */ }
