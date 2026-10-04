@@ -29,7 +29,7 @@ export function parseDuration(s: string | null | undefined): number | null {
 export function parseViews(s: string | null | undefined): number | null {
   const t = (s ?? "").trim();
   if (/^no views/i.test(t)) return 0;
-  const m = t.match(/^([\d.,]+)\s*([KMB])?\s*views?/i);
+  const m = t.match(/^([\d.,]+)\s*([KMB])?\s*(views?)?$/i);
   if (!m) return null;
   const n = Number(m[1]!.replace(/,/g, ""));
   if (!Number.isFinite(n)) return null;
@@ -175,7 +175,7 @@ export async function discoverChannel(channelUrl: string, maxPages = 200): Promi
       if (id && l.contentType === "LOCKUP_CONTENT_TYPE_VIDEO" && !seen.has(id)) {
         const strings = stringsIn(l);
         const dur = strings.map(parseDuration).find((n) => n != null) ?? null;
-        const views = strings.filter((s) => /views?$/i.test(s)).map(parseViews).find((n) => n != null) ?? null;
+        const views = strings.filter((s) => /views?$/i.test(s) || /^[\d.,]+\s*[KMB]?$/i.test(s.trim())).map(parseViews).find((n) => n != null) ?? null;
         seen.set(id, { id, title: l?.metadata?.lockupMetadataViewModel?.title?.content ?? "", durationSeconds: dur, views });
       }
     }
