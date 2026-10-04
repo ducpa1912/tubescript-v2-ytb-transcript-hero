@@ -9,7 +9,43 @@ const ANDROID_CLIENT = { clientName: "ANDROID", clientVersion: "20.10.38", andro
 const IOS_CLIENT = { clientName: "IOS", clientVersion: "20.10.4", deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iPhone", osVersion: "18.3.2.22D82", hl: "en", gl: "US" };
 const IOS_UA = "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)";
 
-export type DiscoveredVideo = { id: string; title: string };
+export type DiscoveredVideo = { id: string; title: string; durationSeconds?: number | null; views?: number | null };
+
+/** YouTube refused to serve this video to our server. Carries whatever metadata did come through. */
+export class BotCheckError extends Error {
+  constructor(reason: string, public partial: VideoResult) {
+    super(`BOT_CHECK: ${reason}`);
+  }
+}
+
+/** "1:02:03" / "12:34" -> seconds. */
+export function parseDuration(s: string | null | undefined): number | null {
+  const m = (s ?? "").trim().match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  return m[3] != null ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : Number(m[1]) * 60 + Number(m[2]);
+}
+
+/** "1,234 views" / "1.2K views" / "No views" -> number. */
+export function parseViews(s: string | null | undefined): number | null {
+  const t = (s ?? "").trim();
+  if (/^no views/i.test(t)) return 0;
+  const m = t.match(/^([\d.,]+)\s*([KMB])?\s*views?/i);
+  if (!m) return null;
+  const n = Number(m[1]!.replace(/,/g, ""));
+  if (!Number.isFinite(n)) return null;
+  const mult = { K: 1e3, M: 1e6, B: 1e9 }[(m[2] ?? "").toUpperCase() as "K" | "M" | "B"] ?? 1;
+  return Math.round(n * mult);
+}
+
+function stringsIn(node: any, out: string[] = [], depth = 0): string[] {
+  if (depth > 12 || node == null) return out;
+  if (typeof node === "string") { out.push(node); return out; }
+  if (Array.isArray(node)) { for (const x of node) stringsIn(x, out, depth + 1); return out; }
+  if (typeof node === "object") for (const k of Object.keys(node)) {
+    if (k === "text" || k === "content" || k === "simpleText" || typeof node[k] === "object") stringsIn(node[k], out, depth + 1);
+  }
+  return out;
+}
 export type ChannelInfo = { channelId: string; title: string; handle: string | null; thumbnail: string | null };
 export type VideoResult = {
   id: string;
@@ -125,13 +161,23 @@ export async function discoverChannel(channelUrl: string, maxPages = 200): Promi
   const seen = new Map<string, DiscoveredVideo>();
   const collect = (node: any): string | null => {
     for (const v of walk(node, "videoRenderer")) {
-      if (v?.videoId && !seen.has(v.videoId)) seen.set(v.videoId, { id: v.videoId, title: textOf(v.title) });
+      if (v?.videoId && !seen.has(v.videoId)) {
+        seen.set(v.videoId, {
+          id: v.videoId, title: textOf(v.title),
+          durationSeconds: parseDuration(textOf(v.lengthText)),
+          views: parseViews(textOf(v.viewCountText)),
+        });
+      }
     }
-    // Newer lockupViewModel layout
+    // Newer lockupViewModel layout: duration sits in a thumbnail badge, views in a metadata row.
     for (const l of walk(node, "lockupViewModel")) {
       const id = l?.contentId;
-      if (id && l.contentType === "LOCKUP_CONTENT_TYPE_VIDEO" && !seen.has(id))
-        seen.set(id, { id, title: l?.metadata?.lockupMetadataViewModel?.title?.content ?? "" });
+      if (id && l.contentType === "LOCKUP_CONTENT_TYPE_VIDEO" && !seen.has(id)) {
+        const strings = stringsIn(l);
+        const dur = strings.map(parseDuration).find((n) => n != null) ?? null;
+        const views = strings.filter((s) => /views?$/i.test(s)).map(parseViews).find((n) => n != null) ?? null;
+        seen.set(id, { id, title: l?.metadata?.lockupMetadataViewModel?.title?.content ?? "", durationSeconds: dur, views });
+      }
     }
     let token: string | null = null;
     for (const c of walk(node, "continuationItemRenderer")) {
@@ -235,14 +281,15 @@ export async function extractVideo(videoId: string, knownTitle?: string | null):
   if (!vd.videoId && !mf.title) {
     const reason = android?.playabilityStatus?.reason ?? web?.playabilityStatus?.reason ?? "Video unavailable";
     // YouTube blocking our server is temporary — retry later instead of marking the video unavailable.
-    if (/not a bot|sign in to confirm/i.test(reason) || (!android && !web)) throw new Error(`BOT_CHECK: ${reason}`);
+    if (/not a bot|sign in to confirm/i.test(reason) || (!android && !web)) throw new BotCheckError(reason, base);
     return { ...base, status: "unavailable", statusDetail: reason };
   }
   const tracks: any[] = android?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
   if (!tracks.length) {
     const s = android?.playabilityStatus?.status;
     const reason = android?.playabilityStatus?.reason ?? "";
-    if (/not a bot|sign in to confirm/i.test(reason)) throw new Error(`BOT_CHECK: ${reason}`);
+    // Metadata may have come through even though captions were blocked — hand it back so it's kept.
+    if (/not a bot|sign in to confirm/i.test(reason)) throw new BotCheckError(reason, base);
     return { ...base, statusDetail: s && s !== "OK" ? reason || s : "No captions available" };
   }
   // Prefer: manual English > auto English > manual any > auto any
