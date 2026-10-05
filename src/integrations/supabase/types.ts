@@ -160,6 +160,108 @@ export type Database = {
           },
         ]
       }
+      user_video_unlocks: {
+        Row: {
+          id: string
+          source: string
+          unlocked_at: string
+          user_id: string
+          video_id: string
+        }
+        Insert: {
+          id?: string
+          source?: string
+          unlocked_at?: string
+          user_id: string
+          video_id: string
+        }
+        Update: {
+          id?: string
+          source?: string
+          unlocked_at?: string
+          user_id?: string
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_video_unlocks_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_metadata_history: {
+        Row: {
+          duration_seconds: number | null
+          id: string
+          publish_date: string | null
+          recorded_at: string
+          title: string | null
+          video_id: string
+          views: number | null
+        }
+        Insert: {
+          duration_seconds?: number | null
+          id?: string
+          publish_date?: string | null
+          recorded_at?: string
+          title?: string | null
+          video_id: string
+          views?: number | null
+        }
+        Update: {
+          duration_seconds?: number | null
+          id?: string
+          publish_date?: string | null
+          recorded_at?: string
+          title?: string | null
+          video_id?: string
+          views?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_metadata_history_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_transcripts: {
+        Row: {
+          caption_lang: string | null
+          extracted_at: string
+          transcript: string
+          video_id: string
+          word_count: number
+        }
+        Insert: {
+          caption_lang?: string | null
+          extracted_at?: string
+          transcript: string
+          video_id: string
+          word_count?: number
+        }
+        Update: {
+          caption_lang?: string | null
+          extracted_at?: string
+          transcript?: string
+          video_id?: string
+          word_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_transcripts_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: true
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       videos: {
         Row: {
           attempts: number
@@ -172,9 +274,9 @@ export type Database = {
           status: string
           status_detail: string | null
           title: string
-          transcript: string | null
           updated_at: string
           views: number | null
+          views_updated_at: string | null
           word_count: number
         }
         Insert: {
@@ -188,9 +290,9 @@ export type Database = {
           status?: string
           status_detail?: string | null
           title?: string
-          transcript?: string | null
           updated_at?: string
           views?: number | null
+          views_updated_at?: string | null
           word_count?: number
         }
         Update: {
@@ -204,9 +306,9 @@ export type Database = {
           status?: string
           status_detail?: string | null
           title?: string
-          transcript?: string | null
           updated_at?: string
           views?: number | null
+          views_updated_at?: string | null
           word_count?: number
         }
         Relationships: [
@@ -242,7 +344,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      user_channel_remaining: {
+        Args: { _channel: string; _user: string }
+        Returns: number
+      }
+      user_channel_todo: {
+        Args: { _channel: string; _limit: number; _user: string }
+        Returns: {
+          attempts: number
+          cached: boolean
+          duration_seconds: number
+          id: string
+          publish_date: string
+          status: string
+          title: string
+          views: number
+        }[]
+      }
     }
     Enums: {
       plan_tier: "free" | "paid"
