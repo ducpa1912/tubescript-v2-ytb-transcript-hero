@@ -152,11 +152,12 @@ async function requeueBlocked(db: Db, channelId: string) {
     .eq("channel_id", channelId).eq("status", "unavailable").or("status_detail.ilike.%not a bot%,status_detail.ilike.%sign in to confirm%");
 }
 
-type SavedMeta = { title: string; views: number | null; views_updated_at?: string | null; duration_seconds: number | null; publish_date: string | null };
+type MetaPatch = { title?: string; views?: number; views_updated_at?: string; duration_seconds?: number; publish_date?: string; position?: number; channel_id?: string };
+type SavedMeta = { title: string; views: number | null; views_updated_at?: string | null | undefined; duration_seconds: number | null; publish_date: string | null };
 
 /** Latest metadata wins, but an empty value never replaces a saved one. Rounded listing views only refresh stale counts. */
 function mergeDiscovered(r: SavedMeta, d: Discovered, exact: boolean, now: string) {
-  const p: Record<string, unknown> = {};
+  const p: MetaPatch = {};
   if (d.title && d.title !== r.title) p.title = d.title;
   const stale = !r.views_updated_at || Date.now() - Date.parse(r.views_updated_at) > VIEWS_STALE_MS;
   if (d.views != null && d.views !== r.views && (r.views == null || exact || stale)) { p.views = d.views; p.views_updated_at = now; }
@@ -258,7 +259,7 @@ function toRow(r: import("./youtube.server").VideoResult) {
     title: r.title,
     publish_date: r.publishDate,
     views: r.views,
-    views_updated_at: r.views != null ? new Date().toISOString() : undefined,
+    views_updated_at: r.views != null ? new Date().toISOString() : null as string | null,
     duration_seconds: r.durationSeconds,
     status: r.status,
     status_detail: r.status === "ok" ? null : r.statusDetail,
@@ -268,7 +269,7 @@ function toRow(r: import("./youtube.server").VideoResult) {
   };
 }
 
-type Saved = { title: string; views: number | null; duration_seconds: number | null; publish_date: string | null };
+type Saved = { title: string; views: number | null; views_updated_at?: string | null | undefined; duration_seconds: number | null; publish_date: string | null };
 
 /** Latest non-empty values win; an empty value never replaces a saved one. */
 function latestMeta<T extends ReturnType<typeof toRow>>(row: T, saved: Saved | null | undefined): T {
@@ -277,6 +278,7 @@ function latestMeta<T extends ReturnType<typeof toRow>>(row: T, saved: Saved | n
     ...row,
     title: row.title || saved.title,
     views: row.views ?? saved.views,
+    views_updated_at: row.views != null ? row.views_updated_at : saved.views_updated_at ?? null,
     duration_seconds: row.duration_seconds ?? saved.duration_seconds,
     publish_date: row.publish_date ?? saved.publish_date,
   };
@@ -284,7 +286,7 @@ function latestMeta<T extends ReturnType<typeof toRow>>(row: T, saved: Saved | n
 
 /** From a blocked fetch, only fill fields that are still empty. */
 function fillMissing(r: import("./youtube.server").VideoResult, saved: Saved) {
-  const patch: Record<string, unknown> = {};
+  const patch: MetaPatch = {};
   if (!saved.title && r.title) patch.title = r.title;
   if (saved.views == null && r.views != null) patch.views = r.views;
   if (saved.duration_seconds == null && r.durationSeconds != null) patch.duration_seconds = r.durationSeconds;

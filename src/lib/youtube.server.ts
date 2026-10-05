@@ -354,7 +354,7 @@ export async function discoverChannelViaApi(channelUrl: string, key: string): Pr
   const id = path.match(/channel\/(UC[\w-]{22})/)?.[1];
   const handle = path.match(/^\/(@[^/]+)/)?.[1];
   const user = path.match(/^\/user\/([^/]+)/)?.[1];
-  if (id) params.id = id; else if (handle) params.forHandle = handle; else if (user) params.forUsername = user;
+  if (id) params['id'] = id; else if (handle) params['forHandle'] = handle; else if (user) params['forUsername'] = user;
   else throw new Error("Unsupported channel URL for API discovery");
   const ch = (await dataApi("channels", params, key)).items?.[0];
   if (!ch) throw new Error("Channel not found.");
@@ -370,7 +370,7 @@ export async function discoverChannelViaApi(channelUrl: string, key: string): Pr
   let pageToken: string | undefined;
   for (let i = 0; i < 100; i++) {
     const p: Record<string, string> = { part: "contentDetails", playlistId: `UULF${channelId.slice(2)}`, maxResults: "50" };
-    if (pageToken) p.pageToken = pageToken;
+    if (pageToken) p['pageToken'] = pageToken;
     let j: any;
     try { j = await dataApi("playlistItems", p, key); } catch (e) { if (i === 0) throw e; break; }
     for (const it of j.items ?? []) if (it.contentDetails?.videoId) ids.push(it.contentDetails.videoId);
