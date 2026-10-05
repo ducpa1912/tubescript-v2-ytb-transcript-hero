@@ -6,7 +6,11 @@
 - [x] Tier gating: visitors = video link only; channel crawls require sign-in (server-enforced in startScan)
 - [x] Daily quota: first 10 videos/day free, then paid credits; enforced in processBatch
 
+- [x] Phase 1: shared transcript store + per-user unlocks + latest-metadata refresh with history
+- [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
+
 ## Tasks
+- [ ] Rotating proxy for transcript fetches (needs an HTTP-API style proxy service the server can call)
 - [ ] Connect V2 to its own private GitHub repo (user action: + menu → GitHub → Connect)
 - [ ] Enable payments (Paddle recommended for US digital SaaS — awaiting user confirmation)
 - [ ] Products: $5/mo = 500 transcripts + $5/500 top-up; webhook grants credits idempotently
