@@ -10,9 +10,10 @@
 <!-- LOVABLE:END -->
 
 ## Tubescript architecture
-- YouTube extraction is keyless and lives in `src/lib/youtube.server.ts` (innertube ANDROID player for captions, WEB player for metadata, Videos-tab browse continuations for discovery) — official APIs need keys the product forbids.
+- YouTube extraction lives in `src/lib/youtube.server.ts`: stage 1 discovery uses the official Data API (`UULF` long-form uploads playlist) only when `YOUTUBE_API_KEY` is set, else keyless Videos-tab continuations; stage 2 captions are always keyless innertube — the Data API cannot download third-party captions.
 - Crawls are a DB-backed queue (`videos.status = 'pending'`) drained by the browser calling `processBatch` repeatedly — each call is its own Worker invocation, staying within the 6-outbound-connection cap and time limits.
-- `videos`/`channels` are public read-only via RLS; all writes go through server functions using the admin client — the tool has no sign-in.
+- `videos`/`channels` hold public metadata only; transcript text lives once per video in `video_transcripts`, readable only via a `user_video_unlocks` row — so a video is extracted once and shared, while access stays per-user. All writes go through server functions using the admin client.
+- Previous metadata is archived to `video_metadata_history` by a DB trigger on change — the UI shows only the latest values.
 - Reasoning logs for each workstream live in `/logs/*.md`.
 
 ## V2 auth and monetization
@@ -20,4 +21,5 @@
 - Quota unit is one video transcript: first 10/day free for signed-in users (`daily_usage`), then 1 credit per video from `wallets`; every credit change appends to `credit_ledger` (append-only). Entitlements are checked in `processBatch`, which requires auth.
 - Channel crawls are saved as `projects` (unique per user+channel) so users can resume or update later; crawled transcripts are permanent — never delete rows when a source video goes private/deleted.
 - Profile rows are created lazily by server functions (upsert) — no triggers on `auth.users`.
-- Video fields are fill-only: once a title, views, duration, date or transcript is saved it is never overwritten with empty values or re-fetched — YouTube often blocks the server mid-crawl, and partial data must survive.
+- Metadata is latest-wins but never blank-wins: newer non-empty title/views/duration/date replace old values (rounded listing views refresh at most daily), empty values never overwrite; transcripts are never re-fetched or replaced — YouTube often blocks mid-crawl and partial data must survive.
+- Quota is charged only for delivered transcripts (fresh or from the shared cache); no-caption/failed videos are free.
