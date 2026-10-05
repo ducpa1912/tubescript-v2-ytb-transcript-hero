@@ -26,7 +26,7 @@ export const Route = createFileRoute("/")({
 
 type Channel = { id: string; title: string; handle: string | null; thumbnail: string | null; video_count: number };
 type SortKey = "position" | "title" | "publish_date" | "views" | "duration_seconds" | "status" | "word_count";
-const COLS = "id,title,publish_date,views,duration_seconds,status,status_detail,caption_lang,word_count,transcript,position,updated_at";
+const COLS = "id,title,publish_date,views,duration_seconds,status,status_detail,caption_lang,word_count,position,updated_at";
 type DbRow = Row & { position: number; updated_at: string };
 
 function Index() {
@@ -62,7 +62,7 @@ function Index() {
     setRows((prev) => {
       const next = new Map(prev);
       for (const r of list) {
-        next.set(r.id, r);
+        next.set(r.id, { ...r, transcript: r.transcript ?? prev.get(r.id)?.transcript ?? null });
         if (r.updated_at > lastSync.current) lastSync.current = r.updated_at;
       }
       return next;
@@ -74,7 +74,15 @@ function Index() {
       const { data, error } = await supabase.from("videos").select(COLS)
         .eq("channel_id", channelId).gte("updated_at", since).order("position").range(from, from + 199);
       if (error) throw error;
-      mergeRows(data as DbRow[]);
+      const list = data as DbRow[];
+      // Transcripts are shared but only readable once this user has unlocked them.
+      const ok = list.filter((r) => r.status === "ok").map((r) => r.id);
+      const texts = new Map<string, string>();
+      for (let i = 0; i < ok.length; i += 100) {
+        const { data: t } = await supabase.from("video_transcripts").select("video_id,transcript").in("video_id", ok.slice(i, i + 100));
+        for (const x of t ?? []) texts.set(x.video_id, x.transcript);
+      }
+      mergeRows(list.map((r) => ({ ...r, transcript: texts.get(r.id) ?? null })));
       if (!data || data.length < 200) break;
     }
   }, []);
@@ -93,7 +101,7 @@ function Index() {
       }
       if (res.kind === "video") {
         const { data } = await supabase.from("videos").select(COLS).eq("id", res.videoId);
-        mergeRows((data ?? []) as DbRow[]);
+        mergeRows(((data ?? []) as DbRow[]).map((r) => ({ ...r, transcript: res.transcript })));
         setChannel(null);
         setPhase("done");
         return;
@@ -183,14 +191,14 @@ function Index() {
         </div>
       )}
 
-      {quotaReached && <UpgradeCard locked={list.filter((r) => r.status === "pending").length} />}
+      {quotaReached && <UpgradeCard locked={list.filter((r) => r.status === "pending" || (r.status === "ok" && !r.transcript)).length} />}
 
       {phase !== "idle" && (
         <Progress phase={phase} resolved={resolved} total={total} notice={notice} channel={channel}
           onRefresh={() => run(true)} />
       )}
 
-      {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={quotaReached} />}
+      {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={!!channel} />}
     </main>
   );
 }
@@ -333,8 +341,8 @@ function ResultsTable({ rows, heading, ready, locked = false }: { rows: DbRow[];
         <div style={{ height: virt.getTotalSize(), position: "relative" }}>
           {virt.getVirtualItems().map((vi) => {
             const r = view[vi.index]!;
-            const isLocked = locked && r.status === "pending";
-            const meta = isLocked ? "blur-sm select-none" : "";
+            // Metadata is always shown (latest values); only the transcript text is locked.
+            const isLocked = locked && r.status === "ok" && !r.transcript;
             return (
               <button
                 key={r.id}
@@ -345,11 +353,11 @@ function ResultsTable({ rows, heading, ready, locked = false }: { rows: DbRow[];
               >
                 <span className="font-mono text-xs text-muted-foreground">{r.position + 1}</span>
                 <span className="truncate">{r.title || r.id}</span>
-                <span className={`font-mono text-xs text-muted-foreground ${meta}`}>{isLocked ? "2026-01-01" : r.publish_date?.slice(0, 10) ?? "—"}</span>
-                <span className={`text-right font-mono text-xs ${meta}`}>{isLocked ? "12K" : r.views != null ? compact(r.views) : "—"}</span>
-                <span className={`text-right font-mono text-xs ${meta}`}>{isLocked ? "9:99" : fmtDuration(r.duration_seconds)}</span>
+                <span className={`font-mono text-xs text-muted-foreground `}>{r.publish_date?.slice(0, 10) ?? "—"}</span>
+                <span className={`text-right font-mono text-xs `}>{r.views != null ? compact(r.views) : "—"}</span>
+                <span className={`text-right font-mono text-xs `}>{fmtDuration(r.duration_seconds)}</span>
                 <span className={`truncate font-mono text-xs ${STATUS_STYLE[r.status]}`}>
-                  {isLocked ? "Locked · upgrade" : r.status === "pending" ? <Loader2 className="inline size-3 animate-spin" /> : r.status === "ok" ? `${r.word_count.toLocaleString()} words` : STATUS_LABEL[r.status]}
+                  {isLocked ? `🔒 ${r.word_count.toLocaleString()} words` : r.status === "pending" ? <Loader2 className="inline size-3 animate-spin" /> : r.status === "ok" ? `${r.word_count.toLocaleString()} words` : STATUS_LABEL[r.status]}
                 </span>
               </button>
             );
