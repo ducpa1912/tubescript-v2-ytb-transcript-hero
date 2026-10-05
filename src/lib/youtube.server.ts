@@ -330,3 +330,68 @@ export async function pool<T, R>(items: T[], size: number, fn: (t: T) => Promise
   );
   return out;
 }
+
+// ---------- Stage 1 (optional): official YouTube Data API discovery ----------
+// Used only when YOUTUBE_API_KEY is configured; otherwise the keyless discovery above runs.
+// Uses the "UULF" playlist (long-form uploads only), so Shorts and live streams stay excluded.
+
+function isoDuration(s: string | undefined): number | null {
+  const m = (s ?? "").match(/^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+  if (!m) return null;
+  return (Number(m[1] ?? 0) * 86400) + (Number(m[2] ?? 0) * 3600) + (Number(m[3] ?? 0) * 60) + Number(m[4] ?? 0);
+}
+
+async function dataApi(path: string, params: Record<string, string>, key: string): Promise<any> {
+  const qs = new URLSearchParams({ ...params, key });
+  const r = await fetchRetry(`https://www.googleapis.com/youtube/v3/${path}?${qs}`, {}, 3);
+  if (!r.ok) throw new Error(`YouTube Data API ${path} HTTP ${r.status}`);
+  return r.json();
+}
+
+export async function discoverChannelViaApi(channelUrl: string, key: string): Promise<{ channel: ChannelInfo; videos: DiscoveredVideo[] }> {
+  const path = new URL(channelUrl).pathname;
+  const params: Record<string, string> = { part: "snippet,contentDetails" };
+  const id = path.match(/channel\/(UC[\w-]{22})/)?.[1];
+  const handle = path.match(/^\/(@[^/]+)/)?.[1];
+  const user = path.match(/^\/user\/([^/]+)/)?.[1];
+  if (id) params.id = id; else if (handle) params.forHandle = handle; else if (user) params.forUsername = user;
+  else throw new Error("Unsupported channel URL for API discovery");
+  const ch = (await dataApi("channels", params, key)).items?.[0];
+  if (!ch) throw new Error("Channel not found.");
+  const channelId: string = ch.id;
+  const channel: ChannelInfo = {
+    channelId,
+    title: ch.snippet?.title ?? "Unknown channel",
+    handle: ch.snippet?.customUrl ?? null,
+    thumbnail: ch.snippet?.thumbnails?.high?.url ?? ch.snippet?.thumbnails?.default?.url ?? null,
+  };
+
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  for (let i = 0; i < 100; i++) {
+    const p: Record<string, string> = { part: "contentDetails", playlistId: `UULF${channelId.slice(2)}`, maxResults: "50" };
+    if (pageToken) p.pageToken = pageToken;
+    let j: any;
+    try { j = await dataApi("playlistItems", p, key); } catch (e) { if (i === 0) throw e; break; }
+    for (const it of j.items ?? []) if (it.contentDetails?.videoId) ids.push(it.contentDetails.videoId);
+    pageToken = j.nextPageToken;
+    if (!pageToken) break;
+  }
+
+  const videos: DiscoveredVideo[] = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const j = await dataApi("videos", { part: "snippet,contentDetails,statistics", id: ids.slice(i, i + 50).join(","), maxResults: "50" }, key);
+    const byId = new Map<string, any>((j.items ?? []).map((v: any) => [v.id, v]));
+    for (const vid of ids.slice(i, i + 50)) {
+      const v = byId.get(vid);
+      videos.push({
+        id: vid,
+        title: v?.snippet?.title ?? "",
+        publishDate: v?.snippet?.publishedAt ?? null,
+        durationSeconds: isoDuration(v?.contentDetails?.duration),
+        views: v?.statistics?.viewCount != null ? Number(v.statistics.viewCount) : null,
+      });
+    }
+  }
+  return { channel, videos };
+}
