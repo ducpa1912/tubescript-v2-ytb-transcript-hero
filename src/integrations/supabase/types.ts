@@ -89,6 +89,45 @@ export type Database = {
         }
         Relationships: []
       }
+      pipeline_logs: {
+        Row: {
+          channel_id: string | null
+          created_at: string
+          detail: string | null
+          duration_ms: number | null
+          id: number
+          outcome: string
+          route: string
+          stage: string
+          user_id: string | null
+          video_id: string | null
+        }
+        Insert: {
+          channel_id?: string | null
+          created_at?: string
+          detail?: string | null
+          duration_ms?: number | null
+          id?: never
+          outcome: string
+          route: string
+          stage: string
+          user_id?: string | null
+          video_id?: string | null
+        }
+        Update: {
+          channel_id?: string | null
+          created_at?: string
+          detail?: string | null
+          duration_ms?: number | null
+          id?: never
+          outcome?: string
+          route?: string
+          stage?: string
+          user_id?: string | null
+          video_id?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
