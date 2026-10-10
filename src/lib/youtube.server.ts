@@ -59,6 +59,8 @@ export type VideoResult = {
   captionLang: string | null;
   transcript: string | null;
   statusDetail: string | null;
+  /** Which extraction path produced this result (for pipeline logs). */
+  route?: string;
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -265,7 +267,7 @@ async function player(videoId: string, client: Record<string, unknown>, ua?: str
 /** Fetch metadata + English transcript for one video. Falls back to Decodo (if configured) when YouTube blocks us. */
 export async function extractVideo(videoId: string, knownTitle?: string | null): Promise<VideoResult> {
   try {
-    return await extractDirect(videoId, knownTitle);
+    return { ...(await extractDirect(videoId, knownTitle)), route: "youtube_direct" };
   } catch (e) {
     if (!decodoEnabled()) throw e;
     const partial: VideoResult = e instanceof BotCheckError ? e.partial : {
@@ -284,8 +286,9 @@ export async function extractVideo(videoId: string, knownTitle?: string | null):
         durationSeconds: partial.durationSeconds ?? meta?.durationSeconds ?? null,
         publishDate: partial.publishDate ?? meta?.publishDate ?? null,
       };
-      if (!subs) return { ...base, status: "no_captions", statusDetail: "No English subtitles available" };
-      return { ...base, status: "ok", captionLang: subs.lang, transcript: subs.transcript, statusDetail: null };
+      const route = meta ? "decodo_subtitles+metadata" : "decodo_subtitles";
+      if (!subs) return { ...base, route, status: "no_captions", statusDetail: "No English subtitles available" };
+      return { ...base, route, status: "ok", captionLang: subs.lang, transcript: subs.transcript, statusDetail: null };
     } catch {
       throw e; // keep original (retryable) error
     }
