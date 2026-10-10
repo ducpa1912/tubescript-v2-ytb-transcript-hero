@@ -54,7 +54,7 @@ export async function decodoSubtitles(videoId: string): Promise<{ transcript: st
 }
 
 /** Exact title/views/duration/date via youtube_metadata. */
-export async function decodoMetadata(videoId: string): Promise<{ title?: string; views?: number; durationSeconds?: number; publishDate?: string } | null> {
+export async function decodoMetadata(videoId: string): Promise<{ title?: string | undefined; views?: number | undefined; durationSeconds?: number | undefined; publishDate?: string | undefined } | null> {
   const c = await scrape("youtube_metadata", videoId);
   if (!c || typeof c !== "object") return null;
   const d = String(c.upload_date ?? "");
