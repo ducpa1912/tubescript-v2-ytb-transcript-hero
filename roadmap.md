@@ -10,7 +10,9 @@
 - [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
 
 ## Tasks
-- [ ] Rotating proxy for transcript fetches (needs an HTTP-API style proxy service the server can call)
+- [x] English-only subtitles (creator uploads preferred over auto)
+- [x] Decodo Web Data API fallback (subtitles + metadata) when YouTube blocks
+- [ ] User pastes YOUTUBE_API_KEY and DECODO_API_KEY into secure secrets form
 - [ ] Connect V2 to its own private GitHub repo (user action: + menu → GitHub → Connect)
 - [ ] Enable payments (Paddle recommended for US digital SaaS — awaiting user confirmation)
 - [ ] Products: $5/mo = 500 transcripts + $5/500 top-up; webhook grants credits idempotently
