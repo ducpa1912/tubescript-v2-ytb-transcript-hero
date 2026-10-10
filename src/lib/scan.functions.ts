@@ -40,9 +40,17 @@ async function discover(url: string) {
   const yt = await import("./youtube.server");
   const key = process.env['YOUTUBE_API_KEY'];
   if (key) {
-    try { return { ...(await yt.discoverChannelViaApi(url, key)), exact: true }; } catch { /* fall back to keyless */ }
+    try { return { ...(await yt.discoverChannelViaApi(url, key)), exact: true, route: "youtube_data_api", fallbackFrom: null as string | null }; }
+    catch (e) { return { ...(await yt.discoverChannel(url)), exact: false, route: "keyless_videos_tab", fallbackFrom: (e as Error).message }; }
   }
-  return { ...(await yt.discoverChannel(url)), exact: false };
+  return { ...(await yt.discoverChannel(url)), exact: false, route: "keyless_videos_tab", fallbackFrom: null as string | null };
+}
+
+type LogRow = { user_id?: string | null; channel_id?: string | null; video_id?: string | null; stage: string; route: string; outcome: string; detail?: string | null; duration_ms?: number };
+/** Append pipeline events; logging must never break a crawl. */
+async function writeLogs(db: Db, rows: LogRow[]) {
+  if (!rows.length) return;
+  try { await db.from("pipeline_logs").insert(rows.map((r) => ({ ...r, detail: r.detail?.slice(0, 500) ?? null }))); } catch { /* ignore */ }
 }
 
 /** Store a transcript once, globally. Existing transcripts are never replaced. */
@@ -73,13 +81,16 @@ export const startScan = createServerFn({ method: "POST" })
       const { data: saved } = await db.from("videos").select("id,title,views,duration_seconds,publish_date,channel_id,position").eq("id", parsed.videoId).maybeSingle();
       const { data: cached } = await db.from("video_transcripts").select("transcript").eq("video_id", parsed.videoId).maybeSingle();
       let transcript = cached?.transcript ?? null;
+      const t0 = Date.now();
       try {
         const r = await yt.extractVideo(parsed.videoId, saved?.title);
+        await writeLogs(db, [{ user_id: userId, video_id: parsed.videoId, stage: "single_video", route: r.route ?? "youtube_direct", outcome: r.status, detail: r.statusDetail ?? (r.captionLang ? `lang ${r.captionLang}` : null), duration_ms: Date.now() - t0 }]);
         const row = latestMeta(toRow(r), saved);
         const { error } = await db.from("videos").upsert({ ...row, channel_id: saved?.channel_id ?? null, position: saved?.position ?? 0 });
         if (error) return { error: error.message } as const;
         if (r.transcript && !transcript) { await saveTranscript(db, r.id, r.transcript, r.captionLang); transcript = r.transcript; }
       } catch (e) {
+        await writeLogs(db, [{ user_id: userId, video_id: parsed.videoId, stage: "single_video", route: "youtube_direct", outcome: "error", detail: (e as Error).message, duration_ms: Date.now() - t0 }]);
         if (!saved || !transcript) return { error: (e as Error).message } as const;
       }
       if (userId && transcript) await unlock(db, userId, [parsed.videoId], "single_video");
@@ -89,7 +100,9 @@ export const startScan = createServerFn({ method: "POST" })
     if (!userId) return { error: "Sign in to crawl whole channels — it's free.", authRequired: true } as const;
 
     let found;
+    const d0 = Date.now();
     try { found = await discover(parsed.url); } catch (e) {
+      await writeLogs(db, [{ user_id: userId, stage: "discovery", route: "all_routes_failed", outcome: "error", detail: `${parsed.url} — ${(e as Error).message}`, duration_ms: Date.now() - d0 }]);
       // YouTube refused discovery: resume from the saved video list when we know the channel.
       const id = parsed.url.match(/channel\/(UC[\w-]{22})/)?.[1];
       const known = id ? await db.from("channels").select("id").eq("id", id).maybeSingle() : null;
@@ -99,6 +112,8 @@ export const startScan = createServerFn({ method: "POST" })
       return { kind: "channel" as const, channelId: id, cached: true, newVideos: 0 };
     }
     const { channel, videos, exact } = found;
+    await writeLogs(db, [{ user_id: userId, channel_id: channel.channelId, stage: "discovery", route: found.route, outcome: "ok",
+      detail: `${videos.length} videos${found.fallbackFrom ? ` (Data API failed: ${found.fallbackFrom})` : ""}`, duration_ms: Date.now() - d0 }]);
     const now = new Date().toISOString();
     const existing = await db.from("channels").select("id").eq("id", channel.channelId).maybeSingle();
     await db.from("channels").upsert({
@@ -206,20 +221,26 @@ export const processBatch = createServerFn({ method: "POST" })
 
     let throttled = false;
     const unlocked: string[] = [];
+    const logs: LogRow[] = [];
+    const base = { user_id: userId, channel_id: data.channelId, stage: "transcript" };
     await yt.pool(todo ?? [], 3, async (v) => {
       // Already extracted by anyone: no YouTube request at all.
       if (v.cached) {
         if (v.status !== "ok") await db.from("videos").update({ status: "ok", status_detail: null, updated_at: new Date().toISOString() }).eq("id", v.id);
         unlocked.push(v.id);
+        logs.push({ ...base, video_id: v.id, route: "shared_cache", outcome: "ok", detail: "0 network calls", duration_ms: 0 });
         return;
       }
+      const t0 = Date.now();
       try {
         const r = await yt.extractVideo(v.id, v.title);
+        logs.push({ ...base, video_id: v.id, route: r.route ?? "youtube_direct", outcome: r.status, detail: r.statusDetail ?? (r.captionLang ? `lang ${r.captionLang}` : null), duration_ms: Date.now() - t0 });
         if (r.transcript) await saveTranscript(db, r.id, r.transcript, r.captionLang);
         await db.from("videos").update({ ...latestMeta(toRow(r), v), attempts: v.attempts + 1 }).eq("id", v.id);
         if (r.transcript) unlocked.push(v.id);
       } catch (e) {
         const msg = (e as Error).message;
+        logs.push({ ...base, video_id: v.id, route: "youtube_direct", outcome: msg.includes("429") || msg.startsWith("BOT_CHECK") ? "throttled" : "error", detail: msg, duration_ms: Date.now() - t0 });
         if (msg.includes("429") || msg.startsWith("BOT_CHECK")) {
           throttled = true;
           const partial = e instanceof yt.BotCheckError ? fillMissing(e.partial, v) : {};
@@ -247,6 +268,8 @@ export const processBatch = createServerFn({ method: "POST" })
         description: `Channel crawl — ${creditUsed} videos beyond the free daily quota`,
       });
     }
+    if (creditUsed > 0 || freeUsed > 0) logs.push({ ...base, stage: "billing", route: "quota", outcome: "charged", detail: `${freeUsed} free, ${creditUsed} credits` });
+    await writeLogs(db, logs);
     // Touch unlocked rows so the browser's incremental sync picks them up.
     if (unlocked.length) await db.from("videos").update({ updated_at: new Date().toISOString() }).in("id", unlocked);
 

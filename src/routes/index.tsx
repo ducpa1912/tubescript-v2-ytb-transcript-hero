@@ -145,9 +145,12 @@ function Index() {
       <header className="mb-10 text-center">
         <div className="flex justify-end">
           {user ? (
-            <Link to="/projects" className="font-mono text-xs text-muted-foreground hover:text-foreground">
-              Your projects{account.data ? ` · ${account.data.usedToday}/10 today` : ""}
-            </Link>
+            <span className="flex gap-4">
+              <Link to="/logs" className="font-mono text-xs text-muted-foreground hover:text-foreground">Logs</Link>
+              <Link to="/projects" className="font-mono text-xs text-muted-foreground hover:text-foreground">
+                Your projects{account.data ? ` · ${account.data.usedToday}/10 today` : ""}
+              </Link>
+            </span>
           ) : (
             <Link to="/auth" className="rounded-md border border-input px-3 py-1.5 text-xs font-medium hover:bg-accent">
               Sign in
