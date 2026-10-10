@@ -23,3 +23,5 @@
 - Profile rows are created lazily by server functions (upsert) — no triggers on `auth.users`.
 - Metadata is latest-wins but never blank-wins: newer non-empty title/views/duration/date replace old values (rounded listing views refresh at most daily), empty values never overwrite; transcripts are never re-fetched or replaced — YouTube often blocks mid-crawl and partial data must survive.
 - Quota is charged only for delivered transcripts (fresh or from the shared cache); no-caption/failed videos are free.
+- Decodo Web Data API (`src/lib/decodo.server.ts`) is a paid fallback, called only after direct YouTube extraction is blocked and only when `DECODO_API_KEY` is set — keeps per-video cost near zero.
+- Transcripts are English-only (creator track preferred over auto-generated) — non-English-only videos resolve as no captions.
