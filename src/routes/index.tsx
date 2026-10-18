@@ -147,6 +147,7 @@ function Index() {
           {user ? (
             <span className="flex gap-4">
               <Link to="/logs" className="font-mono text-xs text-muted-foreground hover:text-foreground">Logs</Link>
+              <Link to="/billing" className="font-mono text-xs text-muted-foreground hover:text-foreground">Credits</Link>
               <Link to="/projects" className="font-mono text-xs text-muted-foreground hover:text-foreground">
                 Your projects{account.data ? ` · ${account.data.usedToday}/10 today` : ""}
               </Link>
@@ -213,10 +214,10 @@ function UpgradeCard({ locked }: { locked: number }) {
         You've used your 10 free transcripts for today.
         {locked > 0 && <> <span className="font-medium">{locked} more videos</span> are waiting — your progress is saved.</>}
       </p>
-      <Button size="lg" className="rounded-xl font-semibold" disabled title="Checkout is being set up">
-        Get 500 transcripts — $5
+      <Button size="lg" className="rounded-xl font-semibold" asChild>
+        <Link to="/billing">Get 500 transcripts — $5</Link>
       </Button>
-      <p className="text-xs text-muted-foreground">Checkout opens soon. Or come back tomorrow for 10 more free.</p>
+      <p className="text-xs text-muted-foreground">Or come back tomorrow for 10 more free.</p>
     </div>
   );
 }
@@ -343,7 +344,8 @@ function ResultsTable({ rows, heading, ready, locked = false }: { rows: DbRow[];
       <div ref={parentRef} className="h-[65vh] overflow-auto" data-testid="table-scroll">
         <div style={{ height: virt.getTotalSize(), position: "relative" }}>
           {virt.getVirtualItems().map((vi) => {
-            const r = view[vi.index]!;
+            const r = view[vi.index];
+            if (!r) return null;
             // Metadata is always shown (latest values); only the transcript text is locked.
             const isLocked = locked && r.status === "ok" && !r.transcript;
             return (

@@ -15,12 +15,16 @@
 - [x] Decodo Web Data API fallback (subtitles + metadata) when YouTube blocks
 - [x] YOUTUBE_API_KEY and DECODO_API_KEY saved as secrets
 - [ ] Connect V2 to its own private GitHub repo (user action: + menu → GitHub → Connect)
-- [ ] Enable payments (Paddle recommended for US digital SaaS — awaiting user confirmation)
-- [ ] Products: $5/mo = 500 transcripts + $5/500 top-up; webhook grants credits idempotently
-- [ ] Upgrade/pricing UI on the quota-reached card + account page
-- [ ] Project detail view: resume crawl, update with new videos
-- [ ] Test full flow end-to-end (sign up → crawl → hit quota → pay → continue)
+- [x] Connect existing Atlas Stripe account; create monthly product and reuse existing $5 top-up
+- [x] Standard hosted Checkout + genuine Link Express Checkout Element + billing page
+- [x] Signed Stripe webhook; atomic idempotent 500-credit grants per paid top-up / monthly invoice
+- [x] Atomic transcript quota/credit debit to avoid payment-versus-crawl races
+- [x] Upgrade card + projects link to Credits & billing
+- [x] Project resume and Check for new videos already implemented
+- [ ] Finalize Stripe publishable key + webhook signing secret
+- [ ] Test full payment flow (requires Stripe test credentials and configured webhook)
+- [ ] Explicit per-row/bulk cached transcript unlock controls
 
 ## Blocked / external
 - GitHub repo connection: user performs in Lovable UI
-- Live payments: requires the payments enablement form approval from the user
+- Stripe activation: publishable key, webhook endpoint configuration/signing secret; test-mode credentials needed before payment verification
