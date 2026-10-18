@@ -27,14 +27,16 @@ export async function fulfillEvent(stripe: Stripe, db: Db, event: Stripe.Event) 
     }
   }
   if (event.type === "invoice.paid") {
-    const invoice = await stripe.invoices.retrieve(event.data.object.id);
+    const invoiceId = event.data.object.id;
+    if (!invoiceId) throw new Error("Missing invoice ID");
+    const invoice = await stripe.invoices.retrieve(invoiceId);
     const subId = invoice.parent?.subscription_details?.subscription;
     if (!subId || invoice.status !== "paid" || !["subscription_create", "subscription_cycle"].includes(invoice.billing_reason ?? "")) return;
     const subscription = await stripe.subscriptions.retrieve(typeof subId === "string" ? subId : subId.id);
     const userId = subscription.metadata["tubescript_user_id"];
     if (!userId || !subscription.items.data.some((item) => item.price.id === BILLING.monthly.priceId)) return;
     await syncSubscription(db, subscription);
-    const { error } = await db.rpc("fulfill_stripe_credits", { _user: userId, _reference: invoice.id, _type: "stripe_subscription" });
+    const { error } = await db.rpc("fulfill_stripe_credits", { _user: userId, _reference: invoiceId, _type: "stripe_subscription" });
     checked(error);
   }
   if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted" || event.type === "customer.subscription.created") {
