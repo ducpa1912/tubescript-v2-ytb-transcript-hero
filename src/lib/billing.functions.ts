@@ -27,7 +27,7 @@ export const createCheckout = createServerFn({ method: "POST" }).middleware([req
     let customerId = account?.customer_id;
     if (!customerId) {
       const email = typeof context.claims?.email === "string" ? context.claims.email : undefined;
-      const customer = await stripe.customers.create({ email, metadata: { tubescript_user_id: context.userId } }, { idempotencyKey: `tubescript-customer-${context.userId}` });
+      const customer = await stripe.customers.create({ ...(email ? { email } : {}), metadata: { tubescript_user_id: context.userId } }, { idempotencyKey: `tubescript-customer-${context.userId}` });
       customerId = customer.id;
       const { error: saveError } = await db.from("billing_accounts").upsert({ user_id: context.userId, customer_id: customerId }, { onConflict: "user_id", ignoreDuplicates: true });
       if (saveError) throw new Error("Unable to save billing account.");
@@ -38,7 +38,7 @@ export const createCheckout = createServerFn({ method: "POST" }).middleware([req
     if (data.product === "topup" && !subscriptions.data.some((s) => s.status === "active" && s.items.data.some((i) => i.price.id === BILLING.monthly.priceId))) throw new Error("Subscribe before purchasing additional credits.");
     const origin = new URL(getRequest().url).origin;
     const session = await stripe.checkout.sessions.create({
-      mode: data.product === "monthly" ? "subscription" : "payment", ui_mode: data.express ? "elements" : "hosted_page",
+      mode: data.product === "monthly" ? "subscription" : "payment", ui_mode: data.express ? "custom" : "hosted",
       customer: customerId, client_reference_id: context.userId,
       line_items: [{ price: BILLING[data.product].priceId, quantity: 1 }], payment_method_types: ["card", "link"],
       automatic_tax: { enabled: true },

@@ -14,7 +14,7 @@ function LinkButton() {
   if (state.type === "loading") return <p className="text-sm text-muted-foreground">Loading Link…</p>;
   if (state.type === "error") return <p role="alert" className="text-sm text-destructive">{state.error.message}</p>;
   return <div className="min-h-12">
-    <ExpressCheckoutElement options={{ paymentMethods: { link: "auto", applePay: "never", googlePay: "never", amazonPay: "never", paypal: "never", klarna: "never" }, layout: { maxColumns: 1, maxRows: 1 } }}
+    <ExpressCheckoutElement options={{ buttonHeight: 48, buttonTheme: {}, buttonType: {}, paymentMethodOrder: ["link"], paymentMethods: { link: "auto", applePay: "never", googlePay: "never", amazonPay: "never", paypal: "never", klarna: "never" }, layout: { maxColumns: 1, maxRows: 1 } }}
       onReady={(event) => setAvailable(!!event.availablePaymentMethods?.link)}
       onConfirm={async (event) => { setError(null); const result = await state.checkout.confirm({ expressCheckoutConfirmEvent: event }); if (result.type === "error") setError(result.error.message); }} />
     {available === false && <p className="text-sm text-muted-foreground">Link isn’t available here. Use standard checkout instead.</p>}
