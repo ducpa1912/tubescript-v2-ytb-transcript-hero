@@ -13,7 +13,7 @@
 - Per-row and bulk cached transcript unlocks using free allowance first, then credits.
 
 ## Awaiting external setup
-- Matching Stripe publishable key and webhook signing secret.
+- Stripe publishable key saved securely; webhook signing secret still required.
 - Configure webhook events: checkout.session.completed, checkout.session.async_payment_succeeded, invoice.paid, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted.
 - Verify both checkout paths with Stripe test credentials and a real signed-in test purchase before launch.
 - Private GitHub connection and production publishing/domain decisions remain user actions.

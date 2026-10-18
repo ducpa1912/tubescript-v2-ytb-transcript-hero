@@ -21,7 +21,8 @@
 - [x] Atomic transcript quota/credit debit to avoid payment-versus-crawl races
 - [x] Upgrade card + projects link to Credits & billing
 - [x] Project resume and Check for new videos already implemented
-- [ ] Finalize Stripe publishable key + webhook signing secret
+- [x] Save Stripe publishable key securely
+- [ ] Configure webhook endpoint and signing secret (requires publishing/external Stripe setup)
 - [ ] Test full payment flow (requires Stripe test credentials and configured webhook)
 - [x] Explicit per-row/bulk cached transcript unlock controls
 
