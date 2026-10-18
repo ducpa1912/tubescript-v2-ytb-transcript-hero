@@ -27,3 +27,6 @@
 - Decodo Web Data API (`src/lib/decodo.server.ts`) is a paid fallback, called only after direct YouTube extraction is blocked and only when `DECODO_API_KEY` is set — keeps per-video cost near zero.
 - Transcripts are English-only (creator track preferred over auto-generated) — non-English-only videos resolve as no captions.
 - Pipeline events (discovery/transcript/billing + route taken) are appended to `pipeline_logs` via admin client, owner-readable only; logging failures never break crawls.
+- Stripe billing uses authenticated server functions, a separate Elements-based Link checkout, and a signature-verified public webhook; paid invoice/session IDs are deduplicated inside the same database transaction that updates wallets and appends the ledger.
+- Transcript unlocks and payment grants share a per-user transaction lock; never replace a wallet balance using a stale application read, because simultaneous payments and crawls can lose credits.
+- Explicit cached-transcript unlock controls use the same database delivery function as crawls, so already-unlocked or missing transcripts cannot be charged again.

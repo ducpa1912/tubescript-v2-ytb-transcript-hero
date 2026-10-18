@@ -261,25 +261,18 @@ export const processBatch = createServerFn({ method: "POST" })
     });
 
     // Only delivered transcripts count against quota.
-    const processed = unlocked.length;
-    const freeUsed = Math.min(freeLeft, processed);
-    const creditUsed = processed - freeUsed;
-    await unlock(db, userId, unlocked.slice(0, freeUsed), "daily_free");
-    await unlock(db, userId, unlocked.slice(freeUsed), "credit");
-    if (freeUsed > 0) await db.from("daily_usage").upsert({ user_id: userId, day: today, used: used + freeUsed });
-    if (creditUsed > 0) {
-      await db.from("wallets").upsert({ user_id: userId, credits: credits - creditUsed, updated_at: new Date().toISOString() });
-      await db.from("credit_ledger").insert({
-        user_id: userId, delta: -creditUsed, type: "crawl",
-        description: `Channel crawl — ${creditUsed} videos beyond the free daily quota`,
-      });
-    }
+    const { data: delivered, error: deliveryError } = await db.rpc("deliver_transcript_unlocks", { _user: userId, _ids: unlocked });
+    if (deliveryError) throw new Error(deliveryError.message);
+    const result = delivered as { ids: string[]; freeUsed: number; creditUsed: number; freeLeft: number; credits: number };
+    const processed = result.ids.length;
+    const freeUsed = result.freeUsed;
+    const creditUsed = result.creditUsed;
     if (creditUsed > 0 || freeUsed > 0) logs.push({ ...base, stage: "billing", route: "quota", outcome: "charged", detail: `${freeUsed} free, ${creditUsed} credits` });
     await writeLogs(db, logs);
     // Touch unlocked rows so the browser's incremental sync picks them up.
     if (unlocked.length) await db.from("videos").update({ updated_at: new Date().toISOString() }).in("id", unlocked);
 
-    return { processed, remaining: await remainingFor(), throttled, quotaExceeded: false, freeLeft: Math.max(0, freeLeft - freeUsed), credits: credits - creditUsed };
+    return { processed, remaining: await remainingFor(), throttled, quotaExceeded: result.freeLeft + result.credits === 0, freeLeft: result.freeLeft, credits: result.credits };
   });
 
 function toRow(r: import("./youtube.server").VideoResult) {

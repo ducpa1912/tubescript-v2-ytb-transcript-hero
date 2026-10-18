@@ -68,6 +68,7 @@ function ProjectsPage() {
           {account.data.usedToday}/10 transcripts used today · {account.data.credits} paid credits
         </p>
       )}
+      <Link to="/billing" className="mt-3 inline-block text-sm text-primary underline">Credits & billing</Link>
 
       {projects.isLoading && <p className="mt-8 text-sm text-muted-foreground">Loading…</p>}
 
