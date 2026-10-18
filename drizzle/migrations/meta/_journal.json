@@ -8,6 +8,13 @@
       "when": 1791631917179,
       "tag": "0000_pipeline_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792348428419,
+      "tag": "0001_stripe_billing_and_atomic_credits",
+      "breakpoints": true
     }
   ]
 }
