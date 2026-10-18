@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      billing_accounts: {
+        Row: {
+          customer_id: string
+          subscription_id: string | null
+          subscription_status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          customer_id: string
+          subscription_id?: string | null
+          subscription_status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          customer_id?: string
+          subscription_id?: string | null
+          subscription_status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       channels: {
         Row: {
           discovered_at: string
@@ -85,6 +109,27 @@ export type Database = {
         Update: {
           day?: string
           used?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      payment_fulfillments: {
+        Row: {
+          created_at: string
+          credits: number
+          reference_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          credits: number
+          reference_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          credits?: number
+          reference_id?: string
           user_id?: string
         }
         Relationships: []
@@ -383,6 +428,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      deliver_transcript_unlocks: {
+        Args: { _ids: string[]; _user: string }
+        Returns: Json
+      }
+      fulfill_stripe_credits: {
+        Args: { _reference: string; _type: string; _user: string }
+        Returns: boolean
+      }
       user_channel_remaining: {
         Args: { _channel: string; _user: string }
         Returns: number
