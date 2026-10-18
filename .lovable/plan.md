@@ -10,6 +10,7 @@
 - Standard hosted Stripe Checkout and separate genuine Link Express Checkout Element.
 - Billing page, subscriber-only top-ups, subscription management portal, payment-return status.
 - Signature-verified webhook, idempotent monthly-invoice/top-up credit grants; transaction-safe crawl debit.
+- Per-row and bulk cached transcript unlocks using free allowance first, then credits.
 
 ## Awaiting external setup
 - Matching Stripe publishable key and webhook signing secret.
@@ -18,7 +19,6 @@
 - Private GitHub connection and production publishing/domain decisions remain user actions.
 
 ## Remaining implementation
-- Explicit per-row and bulk cached transcript unlock controls.
 - Dedicated metadata-only refresh controls and wider extraction gauntlet / Decodo response verification.
 
 ## Future ideas (not part of payment delivery)

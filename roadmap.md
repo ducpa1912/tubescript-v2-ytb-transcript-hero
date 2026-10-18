@@ -23,7 +23,7 @@
 - [x] Project resume and Check for new videos already implemented
 - [ ] Finalize Stripe publishable key + webhook signing secret
 - [ ] Test full payment flow (requires Stripe test credentials and configured webhook)
-- [ ] Explicit per-row/bulk cached transcript unlock controls
+- [x] Explicit per-row/bulk cached transcript unlock controls
 
 ## Blocked / external
 - GitHub repo connection: user performs in Lovable UI

@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { unlockTranscripts } from "@/lib/unlock.functions";
 import { ArrowDown, ArrowUp, Download, Loader2, Search, X, RotateCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { startScan, processBatch } from "@/lib/scan.functions";
@@ -202,7 +204,7 @@ function Index() {
           onRefresh={() => run(true)} />
       )}
 
-      {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={!!channel} />}
+      {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={!!channel} onUnlocked={() => channel ? syncChannel(channel.id, true) : Promise.resolve()} />}
     </main>
   );
 }
@@ -259,11 +261,30 @@ const STATUS_STYLE: Record<string, string> = {
   pending: "text-muted-foreground",
 };
 
-function ResultsTable({ rows, heading, ready, locked = false }: { rows: DbRow[]; heading: string; ready: boolean; locked?: boolean }) {
+function ResultsTable({ rows, heading, ready, locked = false, onUnlocked }: { rows: DbRow[]; heading: string; ready: boolean; locked?: boolean; onUnlocked: () => Promise<void> }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "position", dir: 1 });
   const [open, setOpen] = useState<DbRow | null>(null);
   const parentRef = useRef<HTMLDivElement>(null);
+  const unlockFn = useServerFn(unlockTranscripts);
+  const queryClient = useQueryClient();
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockNotice, setUnlockNotice] = useState<string | null>(null);
+  async function unlockIds(ids: string[]) {
+    setUnlocking(true); setUnlockNotice(null);
+    try {
+      let delivered = 0;
+      for (let i = 0; i < ids.length; i += 1000) {
+        const result = await unlockFn({ data: { videoIds: ids.slice(i, i + 1000) } });
+        delivered += result.ids.length;
+        if (result.freeLeft + result.credits === 0) break;
+      }
+      await onUnlocked();
+      await queryClient.invalidateQueries({ queryKey: ["account"] });
+      setUnlockNotice(delivered ? `${delivered} transcripts unlocked.` : "No allowance remaining. Visit Credits to add more.");
+    } catch { setUnlockNotice("Unable to unlock transcripts. Please retry."); }
+    finally { setUnlocking(false); }
+  }
 
   const view = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -281,6 +302,7 @@ function ResultsTable({ rows, heading, ready, locked = false }: { rows: DbRow[];
   }, [rows, q, sort]);
 
   const virt = useVirtualizer({ count: view.length, getScrollElement: () => parentRef.current, estimateSize: () => 52, overscan: 12 });
+  const lockedIds = locked ? view.filter((r) => r.status === "ok" && !r.transcript).map((r) => r.id) : [];
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -327,6 +349,12 @@ function ResultsTable({ rows, heading, ready, locked = false }: { rows: DbRow[];
           ))}
         </div>
       </div>
+      {lockedIds.length > 0 && <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
+        <Button variant="outline" size="sm" disabled={!ready || unlocking} onClick={() => void unlockIds(lockedIds.slice(0, 25))}>Unlock next 25</Button>
+        <Button variant="outline" size="sm" disabled={!ready || unlocking} onClick={() => void unlockIds(lockedIds)}>Unlock all ({lockedIds.length})</Button>
+        <span className="text-xs text-muted-foreground">Free allowance first, then 1 credit each</span>
+      </div>}
+      {unlockNotice && <p role="status" className="border-b px-4 py-2 text-sm text-muted-foreground">{unlockNotice}</p>}
       <div className="flex flex-wrap gap-4 border-b px-4 py-2 font-mono text-xs text-muted-foreground">
         <span>{view.length.toLocaleString()} shown</span>
         {Object.entries(counts).map(([s, n]) => (
@@ -349,11 +377,11 @@ function ResultsTable({ rows, heading, ready, locked = false }: { rows: DbRow[];
             // Metadata is always shown (latest values); only the transcript text is locked.
             const isLocked = locked && r.status === "ok" && !r.transcript;
             return (
-              <button
+              <Button variant="ghost" disabled={isLocked && (!ready || unlocking)}
                 key={r.id}
                 data-row
-                onClick={() => !isLocked && setOpen(r)}
-                className={`${grid} absolute inset-x-0 h-[52px] border-b border-border/50 text-left text-sm ${isLocked ? "cursor-default" : "hover:bg-accent/50"}`}
+                onClick={() => isLocked ? void unlockIds([r.id]) : setOpen(r)}
+                className={`${grid} absolute inset-x-0 h-[52px] rounded-none border-b border-border/50 text-left text-sm font-normal hover:bg-accent/50`}
                 style={{ transform: `translateY(${vi.start}px)` }}
               >
                 <span className="font-mono text-xs text-muted-foreground">{r.position + 1}</span>
@@ -362,9 +390,9 @@ function ResultsTable({ rows, heading, ready, locked = false }: { rows: DbRow[];
                 <span className={`text-right font-mono text-xs `}>{r.views != null ? compact(r.views) : "—"}</span>
                 <span className={`text-right font-mono text-xs `}>{fmtDuration(r.duration_seconds)}</span>
                 <span className={`truncate font-mono text-xs ${STATUS_STYLE[r.status]}`}>
-                  {isLocked ? `🔒 ${r.word_count.toLocaleString()} words` : r.status === "pending" ? <Loader2 className="inline size-3 animate-spin" /> : r.status === "ok" ? `${r.word_count.toLocaleString()} words` : STATUS_LABEL[r.status]}
+                  {isLocked ? "Unlock transcript" : r.status === "pending" ? <Loader2 className="inline size-3 animate-spin" /> : r.status === "ok" ? `${r.word_count.toLocaleString()} words` : STATUS_LABEL[r.status]}
                 </span>
-              </button>
+              </Button>
             );
           })}
         </div>
