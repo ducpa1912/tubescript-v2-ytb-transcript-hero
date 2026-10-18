@@ -28,3 +28,5 @@
 ## Blocked / external
 - GitHub repo connection: user performs in Lovable UI
 - Stripe activation: publishable key, webhook endpoint configuration/signing secret; test-mode credentials needed before payment verification
+- Browser verification: local client dependency requests hang despite cache refresh; signed-in billing/unlock UI remains unverified
+- Existing routing smoke tests: two document-shell mount tests fail; billing/discovery regression tests pass
