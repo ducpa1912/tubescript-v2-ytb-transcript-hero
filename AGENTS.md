@@ -14,6 +14,7 @@
 - Crawls are a DB-backed queue (`videos.status = 'pending'`) drained by the browser calling `processBatch` repeatedly — each call is its own Worker invocation, staying within the 6-outbound-connection cap and time limits.
 - `videos`/`channels` hold public metadata only; transcript text lives once per video in `video_transcripts`, readable only via a `user_video_unlocks` row — so a video is extracted once and shared, while access stays per-user. All writes go through server functions using the admin client.
 - Previous metadata is archived to `video_metadata_history` by a DB trigger on change — the UI shows only the latest values.
+- Discovery inserts new videos with duplicate-ignore and updates existing rows with metadata-only patches; never mix partial existing rows into insertion batches, because omitted extraction state can become null or reset completed work.
 - Reasoning logs for each workstream live in `/logs/*.md`.
 
 ## V2 auth and monetization

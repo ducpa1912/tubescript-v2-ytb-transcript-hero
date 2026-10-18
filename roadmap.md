@@ -1,6 +1,7 @@
 # Tubescript V2 Roadmap
 
 ## Done
+- [x] Old-project discovery preserves extraction state with separate new-video inserts and metadata-only updates (regression tests).
 - [x] Google sign-in enabled on backend (managed) + /auth page + _authenticated layout
 - [x] DB: profiles, projects, wallets, credit_ledger, daily_usage (RLS, grants applied)
 - [x] Tier gating: visitors = video link only; channel crawls require sign-in (server-enforced in startScan)
