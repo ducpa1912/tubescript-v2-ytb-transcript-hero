@@ -3,6 +3,7 @@ import { getRequestHeader } from "@tanstack/start-server-core";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { saveDiscoveredVideos } from "@/lib/video-discovery";
 
 const BATCH = 9; // videos per call; 3 at a time x 2 player calls = 6 outbound (Worker cap)
 const MAX_ATTEMPTS = 3;
@@ -131,28 +132,33 @@ export const startScan = createServerFn({ method: "POST" })
     let fresh = 0;
     for (let i = 0; i < videos.length; i += 500) {
       const chunk = videos.slice(i, i + 500);
-      const { data: rows } = await db.from("videos")
+      const { data: rows, error: readError } = await db.from("videos")
         .select("id,title,views,views_updated_at,duration_seconds,publish_date,position,channel_id").in("id", chunk.map((v) => v.id));
+      if (readError) return { error: readError.message } as const;
       const byId = new Map((rows ?? []).map((r) => [r.id, r]));
-      const upserts = [];
-      for (const [k, d] of chunk.entries()) {
-        const pos = i + k;
-        const r = byId.get(d.id);
-        if (!r) {
-          fresh++;
-          upserts.push({ id: d.id, channel_id: channel.channelId, position: pos, title: d.title, status: "pending",
-            views: d.views ?? null, views_updated_at: d.views != null ? now : null,
-            duration_seconds: d.durationSeconds ?? null, publish_date: d.publishDate ?? null, updated_at: now });
-          continue;
-        }
-        const next = mergeDiscovered(r, d, exact, now);
-        if (r.position !== pos || r.channel_id !== channel.channelId) Object.assign(next, { position: pos, channel_id: channel.channelId });
-        if (Object.keys(next).length) upserts.push({ ...r, ...next, updated_at: now });
-      }
-      if (upserts.length) {
-        const { error } = await db.from("videos").upsert(upserts, { onConflict: "id" });
-        if (error) return { error: error.message } as const;
-      }
+      const discoveredRows = chunk.map((d, k) => ({ id: d.id, channel_id: channel.channelId,
+        position: i + k, title: d.title, views: d.views ?? null,
+        views_updated_at: d.views != null ? now : null, duration_seconds: d.durationSeconds ?? null,
+        publish_date: d.publishDate ?? null, updated_at: now }));
+      fresh += discoveredRows.filter((r) => !byId.has(r.id)).length;
+      try {
+        await saveDiscoveredVideos(discoveredRows, new Set(byId.keys()), (d) => {
+          const r = byId.get(d.id);
+          if (!r) return {};
+          const next = mergeDiscovered(r, { id: d.id, title: d.title, views: d.views,
+            durationSeconds: d.duration_seconds, publishDate: d.publish_date }, exact, now);
+          if (r.position !== d.position || r.channel_id !== d.channel_id)
+            Object.assign(next, { position: d.position, channel_id: d.channel_id });
+          return Object.keys(next).length ? { ...next, updated_at: now } : {};
+        }, async (newRows) => {
+          // A concurrent crawl may have inserted a video already: never overwrite it.
+          const { error } = await db.from("videos").upsert(newRows, { onConflict: "id", ignoreDuplicates: true });
+          if (error) throw new Error(error.message);
+        }, async (id, patch) => {
+          const { error } = await db.from("videos").update(patch).eq("id", id);
+          if (error) throw new Error(error.message);
+        });
+      } catch (e) { return { error: (e as Error).message } as const; }
     }
     await requeueBlocked(db, channel.channelId);
     if (data.refresh) {
