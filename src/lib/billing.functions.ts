@@ -12,6 +12,15 @@ export const getBilling = createServerFn({ method: "GET" }).middleware([requireS
     linkReady: !!process.env["STRIPE_PUBLISHABLE_KEY"] };
 });
 
+/** Owner's credit history: payments, grants, free daily usage and credit spend. */
+export const getLedger = createServerFn({ method: "GET" }).middleware([requireSupabaseAuth]).handler(async ({ context }) => {
+  const { data, error } = await context.supabase.from("credit_ledger")
+    .select("id,delta,free_used,type,description,created_at").eq("user_id", context.userId)
+    .order("created_at", { ascending: false }).limit(200);
+  if (error) throw new Error("Unable to load credit history.");
+  return data ?? [];
+});
+
 export const createCheckout = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ product: z.enum(["monthly", "topup"]), express: z.boolean() }).parse(input))
   .handler(async ({ data, context }) => {
