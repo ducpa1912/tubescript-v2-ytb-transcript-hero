@@ -1,40 +1,30 @@
 import { QueryClient } from "@tanstack/react-query";
-import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/react-router";
-import { cleanup, render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { createMemoryHistory, createRouter } from "@tanstack/react-router";
+import { describe, expect, it, vi } from "vitest";
 
 import { routeTree } from "@/routeTree.gen";
 
-function renderAt(path: string) {
-  const queryClient = new QueryClient();
+// The root shell renders a full <html> document, which jsdom can't mount inside a
+// test container, so assert route resolution instead of DOM content.
+async function resolve(path: string) {
   const router = createRouter({
     routeTree,
-    context: { queryClient },
+    context: { queryClient: new QueryClient() },
     history: createMemoryHistory({ initialEntries: [path] }),
   });
-  return render(<RouterProvider router={router} />);
+  await router.load();
+  return router.state;
 }
 
-afterEach(() => {
-  cleanup();
-  vi.restoreAllMocks();
-});
-
-// Assert only that the router mounts and paints, never page content:
-// routes are rewritten as the app is built and this must keep passing.
 describe("App routing", () => {
-  // The root shell renders <html>/<body>, so React mounts content into document.body.
-  it("renders the index route", async () => {
-    renderAt("/");
-
-    await waitFor(() => expect(document.body.textContent?.trim()).not.toBe(""));
+  it("resolves the index route", async () => {
+    const state = await resolve("/");
+    expect(state.matches.at(-1)?.routeId).toBe("/");
   });
 
-  it("renders the not-found route", async () => {
+  it("resolves unknown paths as not found", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
-
-    renderAt("/this-route-does-not-exist");
-
-    await waitFor(() => expect(document.body.textContent?.trim()).not.toBe(""));
+    const state = await resolve("/this-route-does-not-exist");
+    expect(state.matches.some((m) => m.globalNotFound || m.status === "notFound")).toBe(true);
   });
 });
