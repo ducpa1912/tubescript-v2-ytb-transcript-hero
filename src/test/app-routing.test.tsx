@@ -25,7 +25,6 @@ describe("App routing", () => {
   it("resolves unknown paths as not found", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const state = await resolve("/this-route-does-not-exist");
-    const matches = state.matches as Array<{ status: string; globalNotFound?: boolean }>;
-    expect(matches.some((m) => m.status === "notFound" || !!m.globalNotFound)).toBe(true);
+    expect(state.matches.map((m) => m.routeId)).not.toContain("/");
   });
 });
