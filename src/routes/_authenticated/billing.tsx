@@ -103,7 +103,7 @@ function PlanCard({ product, title, price, body, active, badge, footer, ready, l
   </section>;
 }
 
-const TYPE_LABEL: Record<string, string> = { crawl: "Transcripts", test_grant: "Bonus", subscription: "Monthly plan", topup: "Top-up", referral: "Referral bonus", bonus: "Bonus" };
+const TYPE_LABEL: Record<string, string> = { crawl: "Transcripts", test_grant: "Bonus", stripe_subscription: "Monthly plan payment", stripe_topup: "Top-up payment", referral: "Referral bonus", bonus: "Bonus" };
 
 function Ledger() {
   const ledger = useQuery(ledgerOptions);
