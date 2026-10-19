@@ -15,3 +15,12 @@ describe("Tubescript billing", () => {
     expect(paidTopup({ ...session, client_reference_id: null }, lines)).toBe(false);
   });
 });
+import { sameStripeMode } from "@/lib/billing.server";
+describe("stripe key mode", () => {
+  it("accepts restricted live key with live publishable key", () => {
+    expect(sameStripeMode("rk_live_x", "pk_live_y")).toBe(true);
+  });
+  it("rejects live secret with test publishable key", () => {
+    expect(sameStripeMode("sk_live_x", "pk_test_y")).toBe(false);
+  });
+});

@@ -23,17 +23,18 @@ afterEach(() => {
 // Assert only that the router mounts and paints, never page content:
 // routes are rewritten as the app is built and this must keep passing.
 describe("App routing", () => {
+  // The root shell renders <html>/<body>, so React mounts content into document.body.
   it("renders the index route", async () => {
-    const { container } = renderAt("/");
+    renderAt("/");
 
-    await waitFor(() => expect(container.firstChild).not.toBeNull());
+    await waitFor(() => expect(document.body.textContent?.trim()).not.toBe(""));
   });
 
   it("renders the not-found route", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
-    const { container } = renderAt("/this-route-does-not-exist");
+    renderAt("/this-route-does-not-exist");
 
-    await waitFor(() => expect(container.firstChild).not.toBeNull());
+    await waitFor(() => expect(document.body.textContent?.trim()).not.toBe(""));
   });
 });

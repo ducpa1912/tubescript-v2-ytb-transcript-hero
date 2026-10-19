@@ -8,7 +8,7 @@ export const getBilling = createServerFn({ method: "GET" }).middleware([requireS
   const { data, error } = await context.supabase.from("billing_accounts").select("subscription_status").eq("user_id", context.userId).maybeSingle();
   if (error) throw new Error("Unable to load billing.");
   return { subscribed: ["active", "trialing"].includes(data?.subscription_status ?? ""), status: data?.subscription_status ?? "none",
-    checkoutReady: !!process.env["STRIPE_SECRET_KEY"] && !!process.env["STRIPE_WEBHOOK_SECRET"],
+    checkoutReady: !!process.env["STRIPE_SECRET_KEY"],
     linkReady: !!process.env["STRIPE_PUBLISHABLE_KEY"] };
 });
 
@@ -17,9 +17,9 @@ export const createCheckout = createServerFn({ method: "POST" }).middleware([req
   .handler(async ({ data, context }) => {
     const key = process.env["STRIPE_SECRET_KEY"];
     const publishableKey = process.env["STRIPE_PUBLISHABLE_KEY"];
-    if (!key || !process.env["STRIPE_WEBHOOK_SECRET"]) throw new Error("Payments are awaiting final Stripe setup.");
-    if (data.express && (!publishableKey || publishableKey.startsWith("pk_test_") !== key.startsWith("sk_test_"))) throw new Error("Link is awaiting a matching Stripe publishable key.");
-    const { stripeClient } = await import("./billing.server");
+    if (!key) throw new Error("Payments are awaiting final Stripe setup.");
+    const { stripeClient, sameStripeMode } = await import("./billing.server");
+    if (data.express && (!publishableKey || !sameStripeMode(key, publishableKey))) throw new Error("Link is awaiting a matching Stripe publishable key.");
     const stripe = stripeClient(key);
     const { supabaseAdmin: db } = await import("@/integrations/supabase/client.server");
     const { data: account, error } = await context.supabase.from("billing_accounts").select("*").eq("user_id", context.userId).maybeSingle();
@@ -63,10 +63,19 @@ export const checkPayment = createServerFn({ method: "POST" }).middleware([requi
   .handler(async ({ data, context }) => {
     const key = process.env["STRIPE_SECRET_KEY"];
     if (!key) throw new Error("Payments unavailable.");
-    const { stripeClient } = await import("./billing.server");
-    const session = await stripeClient(key).checkout.sessions.retrieve(data.sessionId);
+    const { stripeClient, fulfillTopupSession, fulfillInvoice } = await import("./billing.server");
+    const stripe = stripeClient(key);
+    const session = await stripe.checkout.sessions.retrieve(data.sessionId);
     if (session.client_reference_id !== context.userId) throw new Error("Payment not found.");
+    const paid = session.payment_status === "paid";
     const reference = session.mode === "subscription" ? (typeof session.invoice === "string" ? session.invoice : session.invoice?.id) : session.id;
-    const { data: saved } = await context.supabase.from("payment_fulfillments").select("reference_id").eq("reference_id", reference ?? "").maybeSingle();
-    return { paid: session.payment_status === "paid", delivered: !!saved };
+    let { data: saved } = await context.supabase.from("payment_fulfillments").select("reference_id").eq("reference_id", reference ?? "").maybeSingle();
+    if (paid && !saved && reference) {
+      // Fulfill on return as well as via webhook; the database RPC dedupes, so credits are granted exactly once.
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      if (session.mode === "subscription") await fulfillInvoice(stripe, supabaseAdmin, reference);
+      else await fulfillTopupSession(stripe, supabaseAdmin, session.id);
+      ({ data: saved } = await context.supabase.from("payment_fulfillments").select("reference_id").eq("reference_id", reference).maybeSingle());
+    }
+    return { paid, delivered: !!saved };
   });
