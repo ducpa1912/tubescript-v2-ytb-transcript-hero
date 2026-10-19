@@ -15,6 +15,13 @@
       "when": 1792348428419,
       "tag": "0001_stripe_billing_and_atomic_credits",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792375479015,
+      "tag": "0002_ledger_free_usage",
+      "breakpoints": true
     }
   ]
 }
