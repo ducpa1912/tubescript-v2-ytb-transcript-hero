@@ -39,7 +39,8 @@ export const createCheckout = createServerFn({ method: "POST" }).middleware([req
     const origin = new URL(getRequest().url).origin;
     const session = await stripe.checkout.sessions.create({
       mode: data.product === "monthly" ? "subscription" : "payment", ui_mode: data.express ? "custom" : "hosted",
-      customer: customerId, client_reference_id: context.userId,
+      // Stripe Tax needs an address on the customer; save the one entered at checkout.
+      customer: customerId, customer_update: { address: "auto" }, client_reference_id: context.userId,
       line_items: [{ price: BILLING[data.product].priceId, quantity: 1 }], payment_method_types: ["card", "link"],
       automatic_tax: { enabled: true },
       ...(data.product === "monthly" ? { subscription_data: { metadata: { tubescript_user_id: context.userId }, billing_mode: { type: "flexible" as const } } } : {}),
