@@ -67,7 +67,7 @@ function Index() {
     setRows((prev) => {
       const next = new Map(prev);
       for (const r of list) {
-        next.set(r.id, { ...r, transcript: r.transcript ?? prev.get(r.id)?.transcript ?? null, cues: r.cues ?? prev.get(r.id)?.cues });
+        next.set(r.id, { ...r, transcript: r.transcript ?? prev.get(r.id)?.transcript ?? null, cues: r.cues ?? prev.get(r.id)?.cues ?? [] });
         if (r.updated_at > lastSync.current) lastSync.current = r.updated_at;
       }
       return next;
@@ -222,7 +222,7 @@ function Index() {
 
       {phase !== "idle" && (
         <Progress phase={phase} resolved={resolved} total={total} notice={notice} channel={channel}
-          onRefresh={() => run(true)} />
+          onRefresh={() => channel ? run(true, collectionUrl(channel.id)) : run(true)} />
       )}
 
       {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={!!channel} signedIn={!!user} onUnlocked={() => channel ? syncChannel(channel.id, true) : Promise.resolve()} />}
