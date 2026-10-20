@@ -1,6 +1,8 @@
 // Keyless YouTube extractor. Pure fetch — safe for the Worker runtime.
 // Discovery: channel /videos tab (ytInitialData) + innertube browse continuations, RSS feed as cross-check.
 // Metadata: innertube WEB player (microformat). Captions: innertube ANDROID player -> timedtext XML.
+import { parseCaptionXml, type Cue } from "./captions";
+import { isKnownPage } from "./collections";
 import { decodoEnabled, decodoMetadata, decodoSubtitles } from "./decodo.server";
 
 const UA =
@@ -32,7 +34,7 @@ export function parseViews(s: string | null | undefined): number | null {
   if (/^no views/i.test(t)) return 0;
   const m = t.match(/^([\d.,]+)\s*([KMB])?\s*(views?)?$/i);
   if (!m) return null;
-  const n = Number(m[1]!.replace(/,/g, ""));
+  const n = Number((m[1] ?? "").replace(/,/g, ""));
   if (!Number.isFinite(n)) return null;
   const mult = { K: 1e3, M: 1e6, B: 1e9 }[(m[2] ?? "").toUpperCase() as "K" | "M" | "B"] ?? 1;
   return Math.round(n * mult);
@@ -58,6 +60,7 @@ export type VideoResult = {
   status: "ok" | "no_captions" | "unavailable";
   captionLang: string | null;
   transcript: string | null;
+  cues?: Cue[];
   statusDetail: string | null;
   /** Which extraction path produced this result (for pipeline logs). */
   route?: string;
@@ -118,7 +121,7 @@ function* walk(o: any, key: string): Generator<any> {
 
 const textOf = (t: any): string => t?.simpleText ?? (t?.runs || []).map((r: any) => r.text).join("") ?? t?.content ?? "";
 
-export type ParsedInput = { kind: "video"; videoId: string } | { kind: "channel"; url: string };
+export type ParsedInput = { kind: "video"; videoId: string } | { kind: "channel"; url: string } | { kind: "playlist"; url: string; playlistId: string };
 
 export function parseInput(raw: string): ParsedInput {
   const s = raw.trim();
@@ -132,18 +135,20 @@ export function parseInput(raw: string): ParsedInput {
     const id = u.pathname.slice(1, 12);
     if (id.length === 11) return { kind: "video", videoId: id };
   }
-  if (!host.endsWith("youtube.com")) throw new Error("Only youtube.com links are supported.");
+  if (host !== "youtube.com") throw new Error("Only youtube.com links are supported.");
+  const playlistId = u.searchParams.get("list");
+  if (playlistId && /^[\w-]{10,150}$/.test(playlistId)) return { kind: "playlist", playlistId, url: `https://www.youtube.com/playlist?list=${playlistId}` };
   const v = u.searchParams.get("v");
   if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) return { kind: "video", videoId: v };
   const m = u.pathname.match(/^\/(shorts|live|embed)\/([A-Za-z0-9_-]{11})/);
-  if (m) return { kind: "video", videoId: m[2]! };
+  if (m) return { kind: "video", videoId: m[2] ?? "" };
   const c = u.pathname.match(/^\/(@[^/]+|channel\/UC[\w-]{22}|c\/[^/]+|user\/[^/]+)/);
-  if (c) return { kind: "channel", url: `https://www.youtube.com/${decodeURIComponent(c[1]!)}` };
+  if (c) return { kind: "channel", url: `https://www.youtube.com/${decodeURIComponent(c[1] ?? "")}` };
   throw new Error("Paste a channel URL (youtube.com/@name) or a video URL.");
 }
 
 /** Discover every long-form video on a channel's Videos tab (Shorts live on a separate tab and are excluded). */
-export async function discoverChannel(channelUrl: string, maxPages = 200): Promise<{ channel: ChannelInfo; videos: DiscoveredVideo[] }> {
+export async function discoverChannel(channelUrl: string, maxPages = 200, known: ReadonlySet<string> = new Set()): Promise<{ channel: ChannelInfo; videos: DiscoveredVideo[] }> {
   const res = await fetchRetry(`${channelUrl.replace(/\/$/, "")}/videos?hl=en`, { headers: { Cookie: "CONSENT=YES+1" } });
   if (res.status === 404) throw new Error("Channel not found.");
   const html = await res.text();
@@ -196,17 +201,19 @@ export async function discoverChannel(channelUrl: string, maxPages = 200): Promi
   const selected = tabs.find((t: any) => t.tabRenderer?.selected) ?? data;
   let token = collect(selected);
   let pages = 0;
-  while (token && pages++ < maxPages) {
+  while (token && pages++ < maxPages && !isKnownPage([...seen.keys()], known)) {
     const r = await fetchRetry(`https://www.youtube.com/youtubei/v1/browse?prettyPrint=false${apiKey ? `&key=${apiKey}` : ""}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ context: { client: { clientName: "WEB", clientVersion, hl: "en", gl: "US" } }, continuation: token }),
     });
-    if (!r.ok) break;
+    if (!r.ok) throw new Error(`Discovery HTTP ${r.status}`);
     const j = await r.json();
     token = collect(j.onResponseReceivedActions ?? j);
     await sleep(150 + Math.random() * 150);
   }
+
+  if (token && pages >= maxPages) throw new Error("Discovery page limit reached; please retry.");
 
   // Cross-check with RSS feed (latest 15) so freshly published videos are never missed.
   try {
@@ -241,18 +248,6 @@ function decodeXml(s: string): string {
     .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
-function parseTimedText(xml: string): string {
-  const parts: string[] = [];
-  // format 3: <p t=".." d=".."> possibly with <s> children; legacy: <text start=..>
-  const re = /<(p|text)\b[^>]*>([\s\S]*?)<\/\1>/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(xml))) {
-    let t = (m[2] ?? "").replace(/<[^>]+>/g, "");
-    t = decodeXml(decodeXml(t)).replace(/\s+/g, " ").trim();
-    if (t) parts.push(t);
-  }
-  return parts.join(" ");
-}
 
 async function player(videoId: string, client: Record<string, unknown>, ua?: string) {
   const r = await fetchRetry("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
@@ -288,7 +283,7 @@ export async function extractVideo(videoId: string, knownTitle?: string | null):
       };
       const route = meta ? "decodo_subtitles+metadata" : "decodo_subtitles";
       if (!subs) return { ...base, route, status: "no_captions", statusDetail: "No English subtitles available" };
-      return { ...base, route, status: "ok", captionLang: subs.lang, transcript: subs.transcript, statusDetail: null };
+      return { ...base, route, status: "ok", captionLang: subs.lang, transcript: subs.transcript, cues: subs.cues, statusDetail: null };
     } catch {
       throw e; // keep original (retryable) error
     }
@@ -339,9 +334,9 @@ async function extractDirect(videoId: string, knownTitle?: string | null): Promi
   try {
     const r = await fetchRetry(track.baseUrl.replace(/&fmt=[^&]*/, ""));
     const xml = await r.text();
-    const text = parseTimedText(xml);
+    const { transcript: text, cues } = parseCaptionXml(xml);
     if (!text) return { ...base, statusDetail: "Caption track was empty" };
-    return { ...base, status: "ok", captionLang: "en" + (track.kind === "asr" ? " (auto)" : ""), transcript: text };
+    return { ...base, status: "ok", captionLang: "en" + (track.kind === "asr" ? " (auto)" : ""), transcript: text, cues };
   } catch (e) {
     throw new Error(`Caption download failed: ${(e as Error).message}`);
   }
@@ -355,7 +350,7 @@ export async function pool<T, R>(items: T[], size: number, fn: (t: T) => Promise
     Array.from({ length: Math.min(size, items.length) }, async () => {
       while (i < items.length) {
         const idx = i++;
-        out[idx] = await fn(items[idx]!);
+        out[idx] = await fn(items[idx] as T);
       }
     }),
   );
@@ -379,7 +374,7 @@ async function dataApi(path: string, params: Record<string, string>, key: string
   return r.json();
 }
 
-export async function discoverChannelViaApi(channelUrl: string, key: string): Promise<{ channel: ChannelInfo; videos: DiscoveredVideo[] }> {
+export async function discoverChannelViaApi(channelUrl: string, key: string, known: ReadonlySet<string> = new Set()): Promise<{ channel: ChannelInfo; videos: DiscoveredVideo[] }> {
   const path = new URL(channelUrl).pathname;
   const params: Record<string, string> = { part: "snippet,contentDetails" };
   const id = path.match(/channel\/(UC[\w-]{22})/)?.[1];
@@ -403,12 +398,13 @@ export async function discoverChannelViaApi(channelUrl: string, key: string): Pr
     const p: Record<string, string> = { part: "contentDetails", playlistId: `UULF${channelId.slice(2)}`, maxResults: "50" };
     if (pageToken) p['pageToken'] = pageToken;
     let j: any;
-    try { j = await dataApi("playlistItems", p, key); } catch (e) { if (i === 0) throw e; break; }
+    j = await dataApi("playlistItems", p, key);
     for (const it of j.items ?? []) if (it.contentDetails?.videoId) ids.push(it.contentDetails.videoId);
     pageToken = j.nextPageToken;
-    if (!pageToken) break;
+    if (!pageToken || isKnownPage((j.items ?? []).map((it: any) => it.contentDetails?.videoId).filter(Boolean), known)) { pageToken = undefined; break; }
   }
 
+  if (pageToken) throw new Error("Discovery page limit reached.");
   const videos: DiscoveredVideo[] = [];
   for (let i = 0; i < ids.length; i += 50) {
     const j = await dataApi("videos", { part: "snippet,contentDetails,statistics", id: ids.slice(i, i + 50).join(","), maxResults: "50" }, key);
@@ -425,4 +421,57 @@ export async function discoverChannelViaApi(channelUrl: string, key: string): Pr
     }
   }
   return { channel, videos };
+}
+
+/** Playlist membership is separate from a video's original channel. */
+export async function discoverPlaylist(playlistId: string, key?: string) {
+  const collectionId = `PL:${playlistId}`;
+  const seen = new Map<string, DiscoveredVideo>();
+  let title = "YouTube playlist";
+  if (key) {
+    const meta = await dataApi("playlists", { part: "snippet", id: playlistId }, key);
+    if (!meta.items?.length) throw new Error("Playlist not found or private.");
+    title = meta.items[0].snippet?.title ?? title;
+    let token: string | undefined;
+    for (let page = 0; page < 200; page++) {
+      const result = await dataApi("playlistItems", { part: "snippet,contentDetails", playlistId, maxResults: "50", ...(token ? { pageToken: token } : {}) }, key);
+      for (const item of result.items ?? []) {
+        const id = item.contentDetails?.videoId;
+        if (id) seen.set(id, { id, title: item.snippet?.title ?? "" });
+      }
+      token = result.nextPageToken;
+      if (!token) break;
+      if (page === 199) throw new Error("Playlist page limit reached.");
+    }
+  } else {
+    const response = await fetchRetry(`https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}&hl=en`);
+    const html = await response.text();
+    const data = extractJsonAfter(html, "var ytInitialData") ?? extractJsonAfter(html, 'window["ytInitialData"]');
+    if (!data) throw new Error("Could not read playlist; it may be private.");
+    title = textOf(data.header?.playlistHeaderRenderer?.title) || data.metadata?.playlistMetadataRenderer?.title || title;
+    const version = html.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/)?.[1] ?? WEB_VERSION_FALLBACK;
+    const collect = (node: any) => {
+      for (const video of walk(node, "playlistVideoRenderer")) {
+        if (video.videoId && !video.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url?.includes("/shorts/"))
+          seen.set(video.videoId, { id: video.videoId, title: textOf(video.title), durationSeconds: parseDuration(textOf(video.lengthText)) });
+      }
+      for (const item of walk(node, "continuationItemRenderer")) {
+        const token = item.continuationEndpoint?.continuationCommand?.token;
+        if (token) return token as string;
+      }
+      return null;
+    };
+    let token = collect(data.contents);
+    for (let page = 0; token && page < 200; page++) {
+      const response = await fetchRetry("https://www.youtube.com/youtubei/v1/browse?prettyPrint=false", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ context: { client: { clientName: "WEB", clientVersion: version, hl: "en", gl: "US" } }, continuation: token }),
+      });
+      if (!response.ok) throw new Error(`Playlist discovery HTTP ${response.status}`);
+      token = collect(await response.json());
+      if (page === 199 && token) throw new Error("Playlist page limit reached.");
+    }
+  }
+  if (!seen.size) throw new Error("No public videos found in this playlist.");
+  return { channel: { channelId: collectionId, title, handle: null, thumbnail: null } as ChannelInfo, videos: [...seen.values()] };
 }
