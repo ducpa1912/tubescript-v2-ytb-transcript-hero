@@ -68,6 +68,39 @@ export type Database = {
         }
         Relationships: []
       }
+      collection_videos: {
+        Row: {
+          collection_id: string
+          position: number
+          video_id: string
+        }
+        Insert: {
+          collection_id: string
+          position?: number
+          video_id: string
+        }
+        Update: {
+          collection_id?: string
+          position?: number
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "collection_videos_collection_id_fkey"
+            columns: ["collection_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "collection_videos_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credit_ledger: {
         Row: {
           created_at: string
@@ -247,6 +280,32 @@ export type Database = {
           },
         ]
       }
+      user_caption_unlocks: {
+        Row: {
+          unlocked_at: string
+          user_id: string
+          video_id: string
+        }
+        Insert: {
+          unlocked_at?: string
+          user_id: string
+          video_id: string
+        }
+        Update: {
+          unlocked_at?: string
+          user_id?: string
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_caption_unlocks_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_video_unlocks: {
         Row: {
           id: string
@@ -274,6 +333,32 @@ export type Database = {
             foreignKeyName: "user_video_unlocks_video_id_fkey"
             columns: ["video_id"]
             isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_caption_cues: {
+        Row: {
+          cues: Json
+          extracted_at: string
+          video_id: string
+        }
+        Insert: {
+          cues: Json
+          extracted_at?: string
+          video_id: string
+        }
+        Update: {
+          cues?: Json
+          extracted_at?: string
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_caption_cues_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: true
             referencedRelation: "videos"
             referencedColumns: ["id"]
           },
@@ -431,6 +516,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      deliver_caption_unlock: {
+        Args: { _user: string; _video: string }
+        Returns: Json
+      }
       deliver_transcript_unlocks: {
         Args: { _ids: string[]; _user: string }
         Returns: Json
