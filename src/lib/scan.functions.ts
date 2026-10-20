@@ -3,6 +3,8 @@ import { getRequestHeader } from "@tanstack/start-server-core";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { collectionIdPattern } from "@/lib/collections";
+import { normalizeCues, type Cue } from "@/lib/captions";
 import { saveDiscoveredVideos } from "@/lib/video-discovery";
 
 const BATCH = 9; // videos per call; 3 at a time x 2 player calls = 6 outbound (Worker cap)
@@ -37,14 +39,14 @@ type Discovered = import("./youtube.server").DiscoveredVideo;
 const VIEWS_STALE_MS = 24 * 3600 * 1000; // refresh view counts at most once a day
 
 /** Stage 1: list the channel. Official Data API when a key is configured (exact numbers), keyless otherwise. */
-async function discover(url: string) {
+async function discover(url: string, known: ReadonlySet<string> = new Set()) {
   const yt = await import("./youtube.server");
   const key = process.env['YOUTUBE_API_KEY'];
   if (key) {
-    try { return { ...(await yt.discoverChannelViaApi(url, key)), exact: true, route: "youtube_data_api", fallbackFrom: null as string | null }; }
-    catch (e) { return { ...(await yt.discoverChannel(url)), exact: false, route: "keyless_videos_tab", fallbackFrom: (e as Error).message }; }
+    try { return { ...(await yt.discoverChannelViaApi(url, key, known)), exact: true, route: "youtube_data_api", fallbackFrom: null as string | null }; }
+    catch (e) { return { ...(await yt.discoverChannel(url, 200, known)), exact: false, route: "keyless_videos_tab", fallbackFrom: (e as Error).message }; }
   }
-  return { ...(await yt.discoverChannel(url)), exact: false, route: "keyless_videos_tab", fallbackFrom: null as string | null };
+  return { ...(await yt.discoverChannel(url, 200, known)), exact: false, route: "keyless_videos_tab", fallbackFrom: null as string | null };
 }
 
 type LogRow = { user_id?: string | null; channel_id?: string | null; video_id?: string | null; stage: string; route: string; outcome: string; detail?: string | null; duration_ms?: number };
@@ -55,11 +57,15 @@ async function writeLogs(db: Db, rows: LogRow[]) {
 }
 
 /** Store a transcript once, globally. Existing transcripts are never replaced. */
-async function saveTranscript(db: Db, id: string, transcript: string, lang: string | null) {
+async function saveTranscript(db: Db, id: string, transcript: string, lang: string | null, cues: Cue[] = []) {
   await db.from("video_transcripts").upsert(
     { video_id: id, transcript, caption_lang: lang, word_count: transcript.split(/\s+/).length },
     { onConflict: "video_id", ignoreDuplicates: true },
   );
+  if (cues.length) {
+    const { error } = await db.from("video_caption_cues").upsert({ video_id: id, cues }, { onConflict: "video_id", ignoreDuplicates: true });
+    if (error) throw new Error("Unable to save timestamps.");
+  }
 }
 
 async function unlock(db: Db, userId: string, ids: string[], source: string) {
@@ -82,6 +88,13 @@ export const startScan = createServerFn({ method: "POST" })
       const { data: saved } = await db.from("videos").select("id,title,views,duration_seconds,publish_date,channel_id,position").eq("id", parsed.videoId).maybeSingle();
       const { data: cached } = await db.from("video_transcripts").select("transcript").eq("video_id", parsed.videoId).maybeSingle();
       let transcript = cached?.transcript ?? null;
+      if (cached?.transcript) {
+        if (userId) await unlock(db, userId, [parsed.videoId], "single_video");
+        const timed = userId ? await db.from("user_caption_unlocks").select("video_id").eq("user_id", userId).eq("video_id", parsed.videoId).maybeSingle() : null;
+        const cues = timed?.data ? (await db.from("video_caption_cues").select("cues").eq("video_id", parsed.videoId).maybeSingle()).data?.cues : null;
+        return { kind: "video" as const, videoId: parsed.videoId, transcript, cues: normalizeCues(cues) };
+      }
+      let freshCues: Cue[] = [];
       const t0 = Date.now();
       try {
         const r = await yt.extractVideo(parsed.videoId, saved?.title);
@@ -89,23 +102,37 @@ export const startScan = createServerFn({ method: "POST" })
         const row = latestMeta(toRow(r), saved);
         const { error } = await db.from("videos").upsert({ ...row, channel_id: saved?.channel_id ?? null, position: saved?.position ?? 0 });
         if (error) return { error: error.message } as const;
-        if (r.transcript && !transcript) { await saveTranscript(db, r.id, r.transcript, r.captionLang); transcript = r.transcript; }
+        if (r.transcript && !transcript) { await saveTranscript(db, r.id, r.transcript, r.captionLang, r.cues); transcript = r.transcript; freshCues = r.cues ?? []; }
       } catch (e) {
         await writeLogs(db, [{ user_id: userId, video_id: parsed.videoId, stage: "single_video", route: "youtube_direct", outcome: "error", detail: (e as Error).message, duration_ms: Date.now() - t0 }]);
         if (!saved || !transcript) return { error: (e as Error).message } as const;
       }
-      if (userId && transcript) await unlock(db, userId, [parsed.videoId], "single_video");
-      return { kind: "video" as const, videoId: parsed.videoId, transcript };
+      if (userId && transcript) {
+        await unlock(db, userId, [parsed.videoId], "single_video");
+        if (freshCues.length) await db.from("user_caption_unlocks").upsert({ user_id: userId, video_id: parsed.videoId }, { onConflict: "user_id,video_id", ignoreDuplicates: true });
+      }
+      return { kind: "video" as const, videoId: parsed.videoId, transcript, cues: freshCues };
     }
 
     if (!userId) return { error: "Sign in to crawl whole channels — it's free.", authRequired: true } as const;
 
     let found;
+    const knownId = parsed.kind === "playlist" ? `PL:${parsed.playlistId}` : parsed.url.match(/channel\/(UC[\w-]{22})/)?.[1];
+    const known = new Set<string>();
+    if (data.refresh && knownId && parsed.kind !== "playlist") {
+      for (let offset = 0; ; offset += 1000) {
+        const { data: old } = await db.from("videos").select("id").eq("channel_id", knownId).range(offset, offset + 999);
+        for (const row of old ?? []) known.add(row.id);
+        if (!old || old.length < 1000) break;
+      }
+    }
     const d0 = Date.now();
-    try { found = await discover(parsed.url); } catch (e) {
+    try { found = parsed.kind === "playlist"
+      ? { ...(await yt.discoverPlaylist(parsed.playlistId, process.env["YOUTUBE_API_KEY"])), exact: false, route: "playlist_discovery", fallbackFrom: null }
+      : await discover(parsed.url, known); } catch (e) {
       await writeLogs(db, [{ user_id: userId, stage: "discovery", route: "all_routes_failed", outcome: "error", detail: `${parsed.url} — ${(e as Error).message}`, duration_ms: Date.now() - d0 }]);
       // YouTube refused discovery: resume from the saved video list when we know the channel.
-      const id = parsed.url.match(/channel\/(UC[\w-]{22})/)?.[1];
+      const id = knownId;
       const known = id ? await db.from("channels").select("id").eq("id", id).maybeSingle() : null;
       if (!id || !known?.data) return { error: (e as Error).message } as const;
       await requeueBlocked(db, id);
@@ -117,15 +144,17 @@ export const startScan = createServerFn({ method: "POST" })
       detail: `${videos.length} videos${found.fallbackFrom ? ` (Data API failed: ${found.fallbackFrom})` : ""}`, duration_ms: Date.now() - d0 }]);
     const now = new Date().toISOString();
     const existing = await db.from("channels").select("id").eq("id", channel.channelId).maybeSingle();
+    const previousCount = (await db.from("channels").select("video_count").eq("id", channel.channelId).maybeSingle()).data?.video_count ?? 0;
+    let collectionCount = Math.max(previousCount, videos.length);
     await db.from("channels").upsert({
       id: channel.channelId, title: channel.title, handle: channel.handle, thumbnail: channel.thumbnail,
-      video_count: videos.length, updated_at: now,
+      video_count: collectionCount, updated_at: now,
     });
     const { data: tokenMeta } = await callerProfile();
     await db.from("profiles").upsert({ user_id: userId, ...tokenMeta }, { onConflict: "user_id", ignoreDuplicates: true });
     await db.from("projects").upsert({
       user_id: userId, channel_id: channel.channelId, channel_title: channel.title,
-      thumbnail: channel.thumbnail, video_count: videos.length, updated_at: now,
+      thumbnail: channel.thumbnail, video_count: collectionCount, updated_at: now,
     }, { onConflict: "user_id,channel_id" });
 
     // Bulk-merge discovered metadata: new videos are queued, known ones get their latest stats.
@@ -136,18 +165,23 @@ export const startScan = createServerFn({ method: "POST" })
         .select("id,title,views,views_updated_at,duration_seconds,publish_date,position,channel_id").in("id", chunk.map((v) => v.id));
       if (readError) return { error: readError.message } as const;
       const byId = new Map((rows ?? []).map((r) => [r.id, r]));
-      const discoveredRows = chunk.map((d, k) => ({ id: d.id, channel_id: channel.channelId,
+      const discoveredRows = chunk.map((d, k) => ({ id: d.id, channel_id: parsed.kind === "playlist" ? null : channel.channelId,
         position: i + k, title: d.title, views: d.views ?? null,
         views_updated_at: d.views != null ? now : null, duration_seconds: d.durationSeconds ?? null,
         publish_date: d.publishDate ?? null, updated_at: now }));
-      fresh += discoveredRows.filter((r) => !byId.has(r.id)).length;
+      if (parsed.kind === "playlist") {
+        const { data: membership, error: memberError } = await db.from("collection_videos").select("video_id").eq("collection_id", channel.channelId).in("video_id", chunk.map((v) => v.id));
+        if (memberError) return { error: memberError.message } as const;
+        const memberIds = new Set((membership ?? []).map((v) => v.video_id));
+        fresh += chunk.filter((v) => !memberIds.has(v.id)).length;
+      } else fresh += discoveredRows.filter((r) => !byId.has(r.id)).length;
       try {
         await saveDiscoveredVideos(discoveredRows, new Set(byId.keys()), (d) => {
           const r = byId.get(d.id);
           if (!r) return {};
           const next = mergeDiscovered(r, { id: d.id, title: d.title, views: d.views,
             durationSeconds: d.duration_seconds, publishDate: d.publish_date }, exact, now);
-          if (r.position !== d.position || r.channel_id !== d.channel_id)
+          if (parsed.kind !== "playlist" && ((!data.refresh && r.position !== d.position) || r.channel_id == null))
             Object.assign(next, { position: d.position, channel_id: d.channel_id });
           return Object.keys(next).length ? { ...next, updated_at: now } : {};
         }, async (newRows) => {
@@ -160,6 +194,18 @@ export const startScan = createServerFn({ method: "POST" })
         });
       } catch (e) { return { error: (e as Error).message } as const; }
     }
+    if (parsed.kind === "playlist") {
+      for (let i = 0; i < videos.length; i += 500) {
+        const { error } = await db.from("collection_videos").upsert(videos.slice(i, i + 500).map((v, k) => ({ collection_id: channel.channelId, video_id: v.id, position: i + k })));
+        if (error) return { error: error.message } as const;
+      }
+    }
+    const { count } = parsed.kind === "playlist"
+      ? await db.from("collection_videos").select("video_id", { count: "exact", head: true }).eq("collection_id", channel.channelId)
+      : await db.from("videos").select("id", { count: "exact", head: true }).eq("channel_id", channel.channelId);
+    collectionCount = Math.max(collectionCount, count ?? 0);
+    await db.from("channels").update({ video_count: collectionCount }).eq("id", channel.channelId);
+    await db.from("projects").update({ video_count: collectionCount }).eq("channel_id", channel.channelId).eq("user_id", userId);
     await requeueBlocked(db, channel.channelId);
     if (data.refresh) {
       await db.from("videos").update({ status: "pending", attempts: 0 }).eq("channel_id", channel.channelId).eq("status", "failed");
@@ -201,7 +247,7 @@ async function callerProfile(): Promise<{ data: UserMeta }> {
 /** Stage 2: unlock cached transcripts instantly, extract the rest. Browser calls this until remaining = 0. */
 export const processBatch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => z.object({ channelId: z.string().regex(/^UC[\w-]{22}$/) }).parse(d))
+  .inputValidator((d) => z.object({ channelId: z.string().regex(collectionIdPattern) }).parse(d))
   .handler(async ({ data, context }) => {
     const yt = await import("./youtube.server");
     const db = await admin();
@@ -241,7 +287,7 @@ export const processBatch = createServerFn({ method: "POST" })
       try {
         const r = await yt.extractVideo(v.id, v.title);
         logs.push({ ...base, video_id: v.id, route: r.route ?? "youtube_direct", outcome: r.status, detail: r.statusDetail ?? (r.captionLang ? `lang ${r.captionLang}` : null), duration_ms: Date.now() - t0 });
-        if (r.transcript) await saveTranscript(db, r.id, r.transcript, r.captionLang);
+        if (r.transcript) await saveTranscript(db, r.id, r.transcript, r.captionLang, r.cues);
         await db.from("videos").update({ ...latestMeta(toRow(r), v), attempts: v.attempts + 1 }).eq("id", v.id);
         if (r.transcript) unlocked.push(v.id);
       } catch (e) {
@@ -264,6 +310,10 @@ export const processBatch = createServerFn({ method: "POST" })
     const { data: delivered, error: deliveryError } = await db.rpc("deliver_transcript_unlocks", { _user: userId, _ids: unlocked });
     if (deliveryError) throw new Error(deliveryError.message);
     const result = delivered as { ids: string[]; freeUsed: number; creditUsed: number; freeLeft: number; credits: number };
+    if (result.ids.length) {
+      const { data: timed } = await db.from("video_caption_cues").select("video_id").in("video_id", result.ids);
+      if (timed?.length) await db.from("user_caption_unlocks").upsert(timed.map((x) => ({ user_id: userId, video_id: x.video_id })), { onConflict: "user_id,video_id", ignoreDuplicates: true });
+    }
     const processed = result.ids.length;
     const freeUsed = result.freeUsed;
     const creditUsed = result.creditUsed;

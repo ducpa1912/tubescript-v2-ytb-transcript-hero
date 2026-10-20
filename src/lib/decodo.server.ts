@@ -1,3 +1,4 @@
+import { normalizeCues, type Cue } from "./captions";
 // Decodo Web Data API fallback (https://data.decodo.com/v1/scrape). Used only when DECODO_API_KEY is set
 // and YouTube blocks our direct requests. Responses are parsed defensively: payload shapes vary by target.
 
@@ -35,14 +36,16 @@ function findArray(o: any, pred: (x: any) => boolean, depth = 0): any[] | null {
 }
 
 /** English transcript via youtube_subtitles. Returns null when no English track is available. */
-export async function decodoSubtitles(videoId: string): Promise<{ transcript: string; lang: string } | null> {
+export async function decodoSubtitles(videoId: string): Promise<{ transcript: string; lang: string; cues: Cue[] } | null> {
   const c = await scrape("youtube_subtitles", videoId, { language_code: "en" });
   if (!c) return null;
   const lang = String(c.language_code ?? c.lang ?? "en");
   if (!/^en/i.test(lang)) return null;
   const events = findArray(c, (x) => x && typeof x === "object" && Array.isArray(x.segs));
   let text = "";
+  let cues: Cue[] = [];
   if (events) {
+    cues = normalizeCues(events.map((e: any) => ({ start: e.tStartMs / 1000, dur: e.dDurationMs / 1000, text: e.segs.map((s: any) => s.utf8 ?? "").join("") })));
     text = events.map((e: any) => e.segs.map((s: any) => s.utf8 ?? "").join("")).join(" ");
   } else if (typeof c === "string") {
     text = c;
@@ -50,7 +53,7 @@ export async function decodoSubtitles(videoId: string): Promise<{ transcript: st
   text = text.replace(/\s+/g, " ").trim();
   if (!text) return null;
   const auto = /asr|auto/i.test(String(c.kind ?? c.type ?? ""));
-  return { transcript: text, lang: "en" + (auto ? " (auto)" : "") };
+  return { transcript: text, cues, lang: "en" + (auto ? " (auto)" : "") };
 }
 
 /** Exact title/views/duration/date via youtube_metadata. */

@@ -82,7 +82,7 @@ function ProjectsPage() {
         {projects.data?.map((p) => (
           <a
             key={p.id}
-            href={`/?channel=${p.channel_id}`}
+            href={`/?channel=${encodeURIComponent(p.channel_id)}`}
             className="flex items-center gap-4 rounded-lg border border-input p-4 transition-colors hover:bg-accent"
           >
             {p.thumbnail && (

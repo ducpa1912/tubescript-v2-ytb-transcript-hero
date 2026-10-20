@@ -1,3 +1,6 @@
+import { TranscriptViewer } from "@/components/transcript-viewer";
+import { normalizeCues, type Cue } from "@/lib/captions";
+import { collectionIdPattern, collectionUrl } from "@/lib/collections";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -16,7 +19,7 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Tubescript — every transcript from a YouTube channel" },
-      { name: "description", content: "Paste a YouTube channel or video link and get every transcript with title, date, views and duration. Export to CSV, JSON or Markdown." },
+      { name: "description", content: "Extract YouTube channel, playlist and video transcripts with searchable metadata, timed captions and CSV, JSON, Markdown, SRT, VTT or SBV downloads." },
       { property: "og:title", content: "Tubescript — every transcript from a YouTube channel" },
       { property: "og:description", content: "Paste a channel link, get every transcript. Export to CSV, JSON or Markdown." },
       { property: "og:type", content: "website" },
@@ -29,7 +32,7 @@ export const Route = createFileRoute("/")({
 type Channel = { id: string; title: string; handle: string | null; thumbnail: string | null; video_count: number };
 type SortKey = "position" | "title" | "publish_date" | "views" | "duration_seconds" | "status" | "word_count";
 const COLS = "id,title,publish_date,views,duration_seconds,status,status_detail,caption_lang,word_count,position,updated_at";
-type DbRow = Row & { position: number; updated_at: string };
+type DbRow = Row & { position: number; updated_at: string; cues?: Cue[] };
 
 function Index() {
   const [input, setInput] = useState("");
@@ -47,8 +50,8 @@ function Index() {
       setUser(data.user ? { id: data.user.id } : null);
       // Opening a saved project: /?channel=UC... resumes it automatically.
       const ch = new URLSearchParams(window.location.search).get("channel");
-      if (ch && /^UC[\w-]{22}$/.test(ch)) {
-        const url = `https://www.youtube.com/channel/${ch}`;
+      if (ch && collectionIdPattern.test(ch)) {
+        const url = collectionUrl(ch);
         setInput(url);
         void runRefLatest.current(false, url);
       }
@@ -64,7 +67,7 @@ function Index() {
     setRows((prev) => {
       const next = new Map(prev);
       for (const r of list) {
-        next.set(r.id, { ...r, transcript: r.transcript ?? prev.get(r.id)?.transcript ?? null });
+        next.set(r.id, { ...r, transcript: r.transcript ?? prev.get(r.id)?.transcript ?? null, cues: r.cues ?? prev.get(r.id)?.cues ?? [] });
         if (r.updated_at > lastSync.current) lastSync.current = r.updated_at;
       }
       return next;
@@ -72,6 +75,20 @@ function Index() {
 
   const syncChannel = useCallback(async (channelId: string, full: boolean) => {
     const since = full ? "1970-01-01" : lastSync.current;
+    if (channelId.startsWith("PL:")) {
+      for (let from = 0; ; from += 200) {
+        const { data: members, error } = await supabase.from("collection_videos").select("video_id,position").eq("collection_id", channelId).order("position").range(from, from + 199);
+        if (error) throw error;
+        if (!members?.length) break;
+        const { data: videos, error: videoError } = await supabase.from("videos").select(COLS).in("id", members.map((m) => m.video_id));
+        if (videoError) throw videoError;
+        const { data: texts } = await supabase.from("video_transcripts").select("video_id,transcript").in("video_id", members.map((m) => m.video_id));
+        const { data: timing } = await supabase.from("video_caption_cues").select("video_id,cues").in("video_id", members.map((m) => m.video_id));
+        mergeRows((videos ?? []).map((v) => ({ ...v, position: members.find((m) => m.video_id === v.id)?.position ?? 0, transcript: texts?.find((t) => t.video_id === v.id)?.transcript ?? null, cues: normalizeCues(timing?.find((t) => t.video_id === v.id)?.cues) })));
+        if (members.length < 200) break;
+      }
+      return;
+    }
     for (let from = 0; ; from += 200) {
       const { data, error } = await supabase.from("videos").select(COLS)
         .eq("channel_id", channelId).gte("updated_at", since).order("position").range(from, from + 199);
@@ -80,11 +97,14 @@ function Index() {
       // Transcripts are shared but only readable once this user has unlocked them.
       const ok = list.filter((r) => r.status === "ok").map((r) => r.id);
       const texts = new Map<string, string>();
+      const timings = new Map<string, Cue[]>();
       for (let i = 0; i < ok.length; i += 100) {
         const { data: t } = await supabase.from("video_transcripts").select("video_id,transcript").in("video_id", ok.slice(i, i + 100));
         for (const x of t ?? []) texts.set(x.video_id, x.transcript);
+        const { data: timing } = await supabase.from("video_caption_cues").select("video_id,cues").in("video_id", ok.slice(i, i + 100));
+        for (const x of timing ?? []) timings.set(x.video_id, normalizeCues(x.cues));
       }
-      mergeRows(list.map((r) => ({ ...r, transcript: texts.get(r.id) ?? null })));
+      mergeRows(list.map((r) => ({ ...r, transcript: texts.get(r.id) ?? null, cues: timings.get(r.id) ?? [] })));
       if (!data || data.length < 200) break;
     }
   }, []);
@@ -93,7 +113,7 @@ function Index() {
     const value = (override ?? input).trim();
     if (!value) return;
     const runId = ++runRef.current;
-    setError(null); setNotice(null); setAuthNeeded(false); setQuotaReached(false); setPhase("discovering"); setRows(new Map()); setChannel(null);
+    setError(null); setNotice(null); setAuthNeeded(false); setQuotaReached(false); setPhase("discovering"); if (!refresh) { setRows(new Map()); setChannel(null); }
     lastSync.current = "1970-01-01";
     try {
       const res = await startScan({ data: { input: value, refresh } });
@@ -103,7 +123,7 @@ function Index() {
       }
       if (res.kind === "video") {
         const { data } = await supabase.from("videos").select(COLS).eq("id", res.videoId);
-        mergeRows(((data ?? []) as DbRow[]).map((r) => ({ ...r, transcript: res.transcript })));
+        mergeRows(((data ?? []) as DbRow[]).map((r) => ({ ...r, transcript: res.transcript, cues: res.cues })));
         setChannel(null);
         setPhase("done");
         return;
@@ -111,7 +131,8 @@ function Index() {
       const { data: ch } = await supabase.from("channels").select("*").eq("id", res.channelId).single();
       setChannel(ch as Channel);
       await syncChannel(res.channelId, true);
-      if (res.cached && res.newVideos === 0) setNotice("Loaded from cache");
+      if (refresh) setNotice(res.newVideos ? `${res.newVideos} new videos found` : "No new videos — saved transcripts kept");
+      else if (res.cached && res.newVideos === 0) setNotice("Loaded from cache");
       setPhase("parsing");
       let backoff = 0;
       while (runRef.current === runId) {
@@ -172,7 +193,7 @@ function Index() {
           autoFocus
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={user ? "youtube.com/@channel  or  a video link" : "Paste a YouTube video link"}
+          placeholder={user ? "YouTube channel, playlist, or video link" : "Paste a YouTube video link"}
           aria-label="YouTube channel or video URL"
           className="min-w-0 flex-1 bg-transparent px-3 py-3 font-mono text-sm outline-none placeholder:text-muted-foreground"
         />
@@ -201,10 +222,10 @@ function Index() {
 
       {phase !== "idle" && (
         <Progress phase={phase} resolved={resolved} total={total} notice={notice} channel={channel}
-          onRefresh={() => run(true)} />
+          onRefresh={() => channel ? run(true, collectionUrl(channel.id)) : run(true)} />
       )}
 
-      {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={!!channel} onUnlocked={() => channel ? syncChannel(channel.id, true) : Promise.resolve()} />}
+      {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={!!channel} signedIn={!!user} onUnlocked={() => channel ? syncChannel(channel.id, true) : Promise.resolve()} />}
     </main>
   );
 }
@@ -246,7 +267,7 @@ function Progress({ phase, resolved, total, notice, channel, onRefresh }: {
       <div className="mt-2 flex min-h-5 items-center justify-between font-mono text-xs text-muted-foreground">
         <span>{notice}</span>
         {phase === "done" && channel && (
-          <button onClick={onRefresh} className="flex items-center gap-1 hover:text-foreground"><RotateCw className="size-3" /> Check for new videos</button>
+          <Button variant="ghost" size="sm" onClick={onRefresh}><RotateCw className="size-3" /> Check for new videos</Button>
         )}
       </div>
     </section>
@@ -261,7 +282,7 @@ const STATUS_STYLE: Record<string, string> = {
   pending: "text-muted-foreground",
 };
 
-function ResultsTable({ rows, heading, ready, locked = false, onUnlocked }: { rows: DbRow[]; heading: string; ready: boolean; locked?: boolean; onUnlocked: () => Promise<void> }) {
+function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlocked }: { rows: DbRow[]; heading: string; ready: boolean; locked?: boolean; signedIn: boolean; onUnlocked: () => Promise<void> }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "position", dir: 1 });
   const [open, setOpen] = useState<DbRow | null>(null);
@@ -409,9 +430,7 @@ function ResultsTable({ rows, heading, ready, locked = false, onUnlocked }: { ro
                   <a className="text-primary underline" href={`https://www.youtube.com/watch?v=${open.id}`} target="_blank" rel="noreferrer">Watch</a>
                 </SheetDescription>
               </SheetHeader>
-              <div className="px-4 pb-6 text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">
-                {open.transcript ?? <span className="text-muted-foreground italic">{open.status_detail ?? STATUS_LABEL[open.status]}</span>}
-              </div>
+              <TranscriptViewer key={open.id} row={open} signedIn={signedIn} />
             </>
           )}
         </SheetContent>
