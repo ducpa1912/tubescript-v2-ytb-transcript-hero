@@ -11,9 +11,10 @@
 - [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
 
 ## Tasks
-- [ ] Priority 1: immutable timed-caption cache, explicit legacy enrichment, SRT/VTT/SBV downloads and click-to-seek viewer.
-- [ ] Priority 2: incremental new-video checks, unlocked-transcript keyword search and resumable playlist scans.
-- [ ] Verify Priority 1/2 with regression tests and signed-in browser checks.
+- [x] Priority 1: immutable timed-caption cache, explicit legacy enrichment, SRT/VTT/SBV per-video downloads and click-to-seek viewer.
+- [x] Priority 2: incremental new-video checks, unlocked-transcript keyword search and resumable playlist scans.
+- [x] Priority 1/2 regression checks: 25 tests passed; latest build OK.
+- [ ] Signed-in timestamp delivery, seek/download and real playlist crawl verification (blocked by non-hydrating local preview dependency requests, even after cache recovery/restart).
 - [x] English-only subtitles (creator uploads preferred over auto)
 - [x] Decodo Web Data API fallback (subtitles + metadata) when YouTube blocks
 - [x] YOUTUBE_API_KEY and DECODO_API_KEY saved as secrets
