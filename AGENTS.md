@@ -30,3 +30,9 @@
 - Stripe billing uses authenticated server functions, a separate Elements-based Link checkout, and a signature-verified public webhook; paid invoice/session IDs are deduplicated inside the same database transaction that updates wallets and appends the ledger.
 - Transcript unlocks and payment grants share a per-user transaction lock; never replace a wallet balance using a stale application read, because simultaneous payments and crawls can lose credits.
 - Explicit cached-transcript unlock controls use the same database delivery function as crawls, so already-unlocked or missing transcripts cannot be charged again.
+
+## Transcript evolution and collections
+- Timed captions live in immutable video_caption_cues with separate per-user caption unlocks; legacy timestamp refreshes never update transcript text and are charged atomically only after cues exist.
+- Playlist IDs use the PL: prefix in saved collections; collection_videos owns ordered membership so one global video is never reassigned from its channel by playlist discovery.
+- Incremental channel discovery stops on a fully known page rather than a timestamp cutoff, because undated or backdated uploads must not be missed; count persisted membership, not only returned pages.
+- Caption parsing and subtitle serialization live in client-safe captions.ts; authenticated timestamp enrichment lives in captions.functions.ts.

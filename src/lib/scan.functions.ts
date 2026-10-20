@@ -145,7 +145,7 @@ export const startScan = createServerFn({ method: "POST" })
     const now = new Date().toISOString();
     const existing = await db.from("channels").select("id").eq("id", channel.channelId).maybeSingle();
     const previousCount = (await db.from("channels").select("video_count").eq("id", channel.channelId).maybeSingle()).data?.video_count ?? 0;
-    const collectionCount = data.refresh ? Math.max(previousCount, videos.length) : videos.length;
+    let collectionCount = Math.max(previousCount, videos.length);
     await db.from("channels").upsert({
       id: channel.channelId, title: channel.title, handle: channel.handle, thumbnail: channel.thumbnail,
       video_count: collectionCount, updated_at: now,
@@ -169,14 +169,19 @@ export const startScan = createServerFn({ method: "POST" })
         position: i + k, title: d.title, views: d.views ?? null,
         views_updated_at: d.views != null ? now : null, duration_seconds: d.durationSeconds ?? null,
         publish_date: d.publishDate ?? null, updated_at: now }));
-      fresh += discoveredRows.filter((r) => !byId.has(r.id)).length;
+      if (parsed.kind === "playlist") {
+        const { data: membership, error: memberError } = await db.from("collection_videos").select("video_id").eq("collection_id", channel.channelId).in("video_id", chunk.map((v) => v.id));
+        if (memberError) return { error: memberError.message } as const;
+        const memberIds = new Set((membership ?? []).map((v) => v.video_id));
+        fresh += chunk.filter((v) => !memberIds.has(v.id)).length;
+      } else fresh += discoveredRows.filter((r) => !byId.has(r.id)).length;
       try {
         await saveDiscoveredVideos(discoveredRows, new Set(byId.keys()), (d) => {
           const r = byId.get(d.id);
           if (!r) return {};
           const next = mergeDiscovered(r, { id: d.id, title: d.title, views: d.views,
             durationSeconds: d.duration_seconds, publishDate: d.publish_date }, exact, now);
-          if (parsed.kind !== "playlist" && !data.refresh && (r.position !== d.position || r.channel_id !== d.channel_id))
+          if (parsed.kind !== "playlist" && ((!data.refresh && r.position !== d.position) || r.channel_id == null))
             Object.assign(next, { position: d.position, channel_id: d.channel_id });
           return Object.keys(next).length ? { ...next, updated_at: now } : {};
         }, async (newRows) => {
@@ -195,6 +200,12 @@ export const startScan = createServerFn({ method: "POST" })
         if (error) return { error: error.message } as const;
       }
     }
+    const { count } = parsed.kind === "playlist"
+      ? await db.from("collection_videos").select("video_id", { count: "exact", head: true }).eq("collection_id", channel.channelId)
+      : await db.from("videos").select("id", { count: "exact", head: true }).eq("channel_id", channel.channelId);
+    collectionCount = Math.max(collectionCount, count ?? 0);
+    await db.from("channels").update({ video_count: collectionCount }).eq("id", channel.channelId);
+    await db.from("projects").update({ video_count: collectionCount }).eq("channel_id", channel.channelId).eq("user_id", userId);
     await requeueBlocked(db, channel.channelId);
     if (data.refresh) {
       await db.from("videos").update({ status: "pending", attempts: 0 }).eq("channel_id", channel.channelId).eq("status", "failed");
