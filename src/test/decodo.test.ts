@@ -15,7 +15,7 @@ describe("Decodo caption extraction", () => {
     });
   });
   it("prefers uploaded English over automatic English", () => {
-    expect(parseDecodoSubtitles({ manual: { en: track("Creator") }, auto_generated: { en: track("Automatic") } })?.transcript).toBe("Creator");
+    expect(parseDecodoSubtitles({ uploader_provided: { en: track("Creator") }, auto_generated: { en: track("Automatic") } })?.transcript).toBe("Creator");
   });
   it("never delivers non-English tracks", () => {
     expect(parseDecodoSubtitles({ manual: { fr: track("Bonjour") } })).toBeNull();
@@ -43,6 +43,19 @@ describe("Decodo caption extraction", () => {
     const request = vi.fn(); vi.stubGlobal("fetch", request);
     await expect(extractVideo("fXDc02qHAhY")).rejects.toThrow("not configured");
     expect(request).not.toHaveBeenCalled();
+  });
+  it("tries uploaded English first and falls back to auto on a missing track", async () => {
+    vi.stubEnv("DECODO_API_KEY", "test-key");
+    const origins: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      if (body.target === "youtube_metadata") return new Response(JSON.stringify({ content: {} }));
+      origins.push(body.subtitle_origin);
+      return body.subtitle_origin === "uploader_provided" ? new Response("", { status: 404 })
+        : new Response(JSON.stringify({ content: { auto_generated: { en: track("Auto fallback") } } }));
+    }));
+    expect((await extractVideo("fXDc02qHAhY")).transcript).toBe("Auto fallback");
+    expect(origins).toEqual(["uploader_provided", "auto_generated"]);
   });
   it("surfaces upstream failures even when Decodo HTTP status is 200", async () => {
     vi.stubEnv("DECODO_API_KEY", "test-key");

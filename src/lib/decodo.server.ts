@@ -16,11 +16,13 @@ async function scrape(target: string, query: string, extra: Record<string, unkno
   });
   if (!r.ok) {
     await r.body?.cancel();
+    if (r.status === 404 && target === "youtube_subtitles") return null;
     throw new Error(`Decodo ${target} HTTP ${r.status}`);
   }
   const j: any = await r.json();
   const result = j?.results?.[0];
   if (result?.status_code != null && Number(result.status_code) >= 400) {
+    if (Number(result.status_code) === 404 && target === "youtube_subtitles") return null;
     throw new Error(`Decodo ${target} upstream HTTP ${result.status_code}`);
   }
   if (j?.error || result?.error) throw new Error(`Decodo ${target} could not complete extraction.`);
@@ -42,8 +44,10 @@ function findArray(o: any, pred: (x: any) => boolean, depth = 0): any[] | null {
 
 /** English transcript via youtube_subtitles. Returns null when no English track is available. */
 export async function decodoSubtitles(videoId: string): Promise<{ transcript: string; lang: string; cues: Cue[] } | null> {
-  const c = await scrape("youtube_subtitles", videoId, { language_code: "en" });
-  return parseDecodoSubtitles(c);
+  const uploaded = await scrape("youtube_subtitles", videoId, { language_code: "en", subtitle_origin: "uploader_provided" });
+  const preferred = parseDecodoSubtitles(uploaded);
+  if (preferred) return preferred;
+  return parseDecodoSubtitles(await scrape("youtube_subtitles", videoId, { language_code: "en", subtitle_origin: "auto_generated" }));
 }
 
 /** Select an English creator track before auto tracks; window events need not contain text. */
@@ -51,9 +55,9 @@ export function parseDecodoSubtitles(c: any): { transcript: string; lang: string
   if (!c) return null;
   const englishTrack = (tracks: any) => tracks && typeof tracks === "object"
     ? Object.entries(tracks).filter(([lang]) => /^en(?:$|[-_])/i.test(lang)).map(([, track]) => track) : [];
-  const manual = englishTrack(c.manual ?? c.manually_generated ?? c.subtitles ?? c.creator_uploaded);
+  const manual = englishTrack(c.uploader_provided ?? c.manual ?? c.manually_generated ?? c.subtitles ?? c.creator_uploaded);
   const automatic = englishTrack(c.auto_generated);
-  const grouped = ["manual", "manually_generated", "subtitles", "creator_uploaded", "auto_generated"].some((key) => key in Object(c));
+  const grouped = ["uploader_provided", "manual", "manually_generated", "subtitles", "creator_uploaded", "auto_generated"].some((key) => key in Object(c));
   const tracks = grouped ? [...manual.map((track) => ({ track, auto: false })), ...automatic.map((track) => ({ track, auto: true }))]
     : [{ track: c, auto: /asr|auto/i.test(String(c.kind ?? c.type ?? "")) }];
   for (const { track, auto } of tracks) {
