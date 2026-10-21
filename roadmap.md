@@ -11,6 +11,11 @@
 - [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
 
 ## Tasks
+- [x] Build two-tier analysis: free Read, 10-credit Watch, fixed caption segments, shared cache, atomic unlocks.
+- [x] Build model settings, OpenCode/OpenRouter fallback routing, resumable batch queue and analysis viewer.
+- [x] Verify analysis pricing and routing: 32 focused tests; real MiniMax OpenRouter Read response reports $0 cost; persisted real-video Read unlock and repeat unlock charged 0.
+- [ ] Verify signed-in analysis UI and full queue flow (local browser dependencies still do not hydrate; two focused attempts, no UI success claimed).
+- [ ] Verify Watch video ingestion and 10-credit delivery on a timed video (no existing unlocked videos have cached caption cues; Watch safely asks for timestamps and does not charge).
 - [x] Priority 1: immutable timed-caption cache, explicit legacy enrichment, SRT/VTT/SBV per-video downloads and click-to-seek viewer.
 - [x] Priority 2: incremental new-video checks, unlocked-transcript keyword search and resumable playlist scans.
 - [x] Priority 1/2 regression checks: 25 tests passed; latest build OK.

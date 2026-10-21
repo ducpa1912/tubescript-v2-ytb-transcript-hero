@@ -14,6 +14,104 @@ export type Database = {
   }
   public: {
     Tables: {
+      analysis_generation_leases: {
+        Row: {
+          expires_at: string
+          tier: string
+          token: string
+          version: number
+          video_id: string
+        }
+        Insert: {
+          expires_at: string
+          tier: string
+          token: string
+          version: number
+          video_id: string
+        }
+        Update: {
+          expires_at?: string
+          tier?: string
+          token?: string
+          version?: number
+          video_id?: string
+        }
+        Relationships: []
+      }
+      analysis_jobs: {
+        Row: {
+          attempts: number
+          available_at: string
+          created_at: string
+          error: string | null
+          id: string
+          lease_until: string | null
+          settings: Json
+          status: string
+          tier: string
+          updated_at: string
+          user_id: string
+          version: number
+          video_id: string
+        }
+        Insert: {
+          attempts?: number
+          available_at?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          lease_until?: string | null
+          settings: Json
+          status?: string
+          tier: string
+          updated_at?: string
+          user_id: string
+          version?: number
+          video_id: string
+        }
+        Update: {
+          attempts?: number
+          available_at?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          lease_until?: string | null
+          settings?: Json
+          status?: string
+          tier?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_jobs_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      analysis_settings: {
+        Row: {
+          settings: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          settings?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          settings?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       billing_accounts: {
         Row: {
           customer_id: string
@@ -280,6 +378,38 @@ export type Database = {
           },
         ]
       }
+      user_analysis_unlocks: {
+        Row: {
+          tier: string
+          unlocked_at: string
+          user_id: string
+          version: number
+          video_id: string
+        }
+        Insert: {
+          tier: string
+          unlocked_at?: string
+          user_id: string
+          version?: number
+          video_id: string
+        }
+        Update: {
+          tier?: string
+          unlocked_at?: string
+          user_id?: string
+          version?: number
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_analysis_unlocks_video_id_tier_version_fkey"
+            columns: ["video_id", "tier", "version"]
+            isOneToOne: false
+            referencedRelation: "video_analyses"
+            referencedColumns: ["video_id", "tier", "version"]
+          },
+        ]
+      }
       user_caption_unlocks: {
         Row: {
           unlocked_at: string
@@ -331,6 +461,50 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "user_video_unlocks_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_analyses: {
+        Row: {
+          created_at: string
+          model: string
+          provider: string
+          result: Json
+          segments: Json
+          tier: string
+          usage: Json | null
+          version: number
+          video_id: string
+        }
+        Insert: {
+          created_at?: string
+          model: string
+          provider: string
+          result: Json
+          segments: Json
+          tier: string
+          usage?: Json | null
+          version?: number
+          video_id: string
+        }
+        Update: {
+          created_at?: string
+          model?: string
+          provider?: string
+          result?: Json
+          segments?: Json
+          tier?: string
+          usage?: Json | null
+          version?: number
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_analyses_video_id_fkey"
             columns: ["video_id"]
             isOneToOne: false
             referencedRelation: "videos"
@@ -516,6 +690,48 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_analysis_generation: {
+        Args: {
+          _tier: string
+          _token: string
+          _version: number
+          _video: string
+        }
+        Returns: boolean
+      }
+      claim_analysis_job: {
+        Args: { _job: string; _user: string }
+        Returns: {
+          attempts: number
+          available_at: string
+          created_at: string
+          error: string | null
+          id: string
+          lease_until: string | null
+          settings: Json
+          status: string
+          tier: string
+          updated_at: string
+          user_id: string
+          version: number
+          video_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "analysis_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      deliver_analysis_unlock: {
+        Args: {
+          _tier: string
+          _user: string
+          _version?: number
+          _video: string
+        }
+        Returns: Json
+      }
       deliver_caption_unlock: {
         Args: { _user: string; _video: string }
         Returns: Json

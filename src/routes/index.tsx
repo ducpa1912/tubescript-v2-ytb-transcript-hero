@@ -1,4 +1,5 @@
 import { TranscriptViewer } from "@/components/transcript-viewer";
+import { AnalysisQueueControls } from "@/components/analysis-panel";
 import { normalizeCues, type Cue } from "@/lib/captions";
 import { collectionIdPattern, collectionUrl } from "@/lib/collections";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -169,6 +170,8 @@ function Index() {
         <div className="flex justify-end">
           {user ? (
             <span className="flex gap-4">
+              <Link to="/settings" className="font-mono text-xs text-muted-foreground hover:text-foreground">Settings</Link>
+              <Link to="/analysis" className="font-mono text-xs text-muted-foreground hover:text-foreground">Analysis</Link>
               <Link to="/logs" className="font-mono text-xs text-muted-foreground hover:text-foreground">Logs</Link>
               <Link to="/billing" className="font-mono text-xs text-muted-foreground hover:text-foreground">Credits</Link>
               <Link to="/projects" className="font-mono text-xs text-muted-foreground hover:text-foreground">
@@ -376,6 +379,7 @@ function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlock
         <span className="text-xs text-muted-foreground">Free allowance first, then 1 credit each</span>
       </div>}
       {unlockNotice && <p role="status" className="border-b px-4 py-2 text-sm text-muted-foreground">{unlockNotice}</p>}
+      {signedIn && view.some((r) => r.transcript) && <div className="border-b px-4 py-3"><AnalysisQueueControls videoIds={view.filter((r) => r.transcript).map((r) => r.id)} /></div>}
       <div className="flex flex-wrap gap-4 border-b px-4 py-2 font-mono text-xs text-muted-foreground">
         <span>{view.length.toLocaleString()} shown</span>
         {Object.entries(counts).map(([s, n]) => (
