@@ -36,3 +36,8 @@
 - Playlist IDs use the PL: prefix in saved collections; collection_videos owns ordered membership so one global video is never reassigned from its channel by playlist discovery.
 - Incremental channel discovery stops on a fully known page rather than a timestamp cutoff, because undated or backdated uploads must not be missed; count persisted membership, not only returned pages.
 - Caption parsing and subtitle serialization live in client-safe captions.ts; authenticated timestamp enrichment lives in captions.functions.ts.
+
+## Video analysis
+- Versioned shared analysis and per-user unlocks use the existing wallet lock for atomic delivery; legacy transcript text and cue anchors never change.
+- Leased per-user jobs drain in browser batches with three concurrent independent invocations; global generation leases prevent overlapping model calls.
+- Catalog-verified free Read routes never fall back to paid IDs; Watch uses actual video input with provider-specific APIs, not guessed visuals.
