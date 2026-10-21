@@ -96,11 +96,17 @@ async function generate(db: Db, user: string, id: string, analysisTier: Analysis
     if (analysisTier === "watch" && segments.some((s) => s.start == null)) throw new Error("Add timestamps before Watch analysis. No credits spent.");
     // Watch runs independently from Read: no tier-1 output is fed in, so it cannot be diluted or anchored.
     const { routeAnalysis } = await import("./ai-router.server");
+    const { data: categories, error: categoryError } = analysisTier === "watch"
+      ? await db.from("watch_categories").select("slug,label,description").order("slug").limit(200)
+      : { data: [], error: null };
+    if (categoryError) throw new Error("Could not load Watch vocabulary.");
     const signals = analysisTier === "watch" ? await (await import("./youtube.server")).extractVideoSignals(id) : { heatMoments: [], chapters: [] };
-    const result = await routeAnalysis({ tier: analysisTier, videoId: id, title: video?.title ?? id, segments, settings, durationS: video?.duration_seconds ?? 0, ...signals }, async (route, outcome, detail, ms) => {
+    const result = await routeAnalysis({ tier: analysisTier, videoId: id, title: video?.title ?? id, segments, settings, durationS: video?.duration_seconds ?? 0, categories: categories ?? [], ...signals }, async (route, outcome, detail, ms) => {
       try { await db.from("pipeline_logs").insert({ user_id: user, video_id: id, stage: `analysis_${analysisTier}`, route: `${route.provider}/${route.model}`, outcome, detail, duration_ms: ms }); } catch { /* Logging must not stop delivery. */ }
     });
-    const { error: saveError } = await db.from("video_analyses").upsert({ video_id: id, tier: analysisTier, version: ANALYSIS_VERSION, result: asJson(result.result), segments: asJson(segments), provider: result.provider, model: result.model, usage: asJson(result.usage) }, { onConflict: "video_id,tier,version", ignoreDuplicates: true });
+    const { error: saveError } = analysisTier === "watch"
+      ? await db.rpc("replace_watch_analysis", { _video: id, _token: token, _result: asJson(result.result), _segments: asJson(segments), _provider: result.provider, _model: result.model, _usage: asJson(result.usage) })
+      : await db.from("video_analyses").upsert({ video_id: id, tier: analysisTier, version: ANALYSIS_VERSION, result: asJson(result.result), segments: asJson(segments), provider: result.provider, model: result.model, usage: asJson(result.usage) }, { onConflict: "video_id,tier,version", ignoreDuplicates: true });
     if (saveError) throw new Error("Could not save analysis. No credits spent.");
     const { data: saved, error: readError } = await db.from("video_analyses").select("*").eq("video_id", id).eq("tier", analysisTier).eq("version", ANALYSIS_VERSION).single();
     if (readError) throw new Error("Could not read saved analysis.");
@@ -129,7 +135,7 @@ export const processAnalysisJob = createServerFn({ method: "POST" }).middleware(
         ]);
         if (!unlocked && (wallet?.credits ?? 0) < ANALYSIS_COST.watch) throw new Error("Watch requires 10 credits. No credits spent.");
       }
-      await generate(db, context.userId, job.video_id, analysisTier, settingsSchema.parse(job.settings));
+      await generate(db, context.userId, job.video_id, analysisTier, settingsSchema.parse(job.settings), job.refresh_requested_at);
       const { data: delivered, error: deliveryError } = await db.rpc("deliver_analysis_unlock", { _user: context.userId, _video: job.video_id, _tier: analysisTier, _version: ANALYSIS_VERSION });
       const delivery = delivered as { delivered?: boolean; charged?: number } | null;
       if (deliveryError || !delivery?.delivered) throw new Error("Analysis saved, but delivery needs sufficient credits. No credits spent.");
