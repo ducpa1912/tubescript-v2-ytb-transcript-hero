@@ -7,7 +7,7 @@ import { collectionIdPattern } from "@/lib/collections";
 import { normalizeCues, type Cue } from "@/lib/captions";
 import { saveDiscoveredVideos } from "@/lib/video-discovery";
 
-const BATCH = 9; // videos per call; 3 at a time x 2 player calls = 6 outbound (Worker cap)
+const BATCH = 9; // videos per call; 3 at a time x 2 Decodo calls = 6 outbound (Worker cap)
 const MAX_ATTEMPTS = 3;
 const FREE_DAILY = 10; // registered users: 10 video transcripts per day
 
@@ -98,13 +98,13 @@ export const startScan = createServerFn({ method: "POST" })
       const t0 = Date.now();
       try {
         const r = await yt.extractVideo(parsed.videoId, saved?.title);
-        await writeLogs(db, [{ user_id: userId, video_id: parsed.videoId, stage: "single_video", route: r.route ?? "youtube_direct", outcome: r.status, detail: r.statusDetail ?? (r.captionLang ? `lang ${r.captionLang}` : null), duration_ms: Date.now() - t0 }]);
+        await writeLogs(db, [{ user_id: userId, video_id: parsed.videoId, stage: "single_video", route: r.route ?? "decodo_subtitles", outcome: r.status, detail: r.statusDetail ?? (r.captionLang ? `lang ${r.captionLang}` : null), duration_ms: Date.now() - t0 }]);
         const row = latestMeta(toRow(r), saved);
         const { error } = await db.from("videos").upsert({ ...row, channel_id: saved?.channel_id ?? null, position: saved?.position ?? 0 });
         if (error) return { error: error.message } as const;
         if (r.transcript && !transcript) { await saveTranscript(db, r.id, r.transcript, r.captionLang, r.cues); transcript = r.transcript; freshCues = r.cues ?? []; }
       } catch (e) {
-        await writeLogs(db, [{ user_id: userId, video_id: parsed.videoId, stage: "single_video", route: "youtube_direct", outcome: "error", detail: (e as Error).message, duration_ms: Date.now() - t0 }]);
+        await writeLogs(db, [{ user_id: userId, video_id: parsed.videoId, stage: "single_video", route: "decodo_subtitles", outcome: "error", detail: (e as Error).message, duration_ms: Date.now() - t0 }]);
         if (!saved || !transcript) return { error: (e as Error).message } as const;
       }
       if (userId && transcript) {
@@ -297,13 +297,13 @@ export const processBatch = createServerFn({ method: "POST" })
       const t0 = Date.now();
       try {
         const r = await yt.extractVideo(v.id, v.title);
-        logs.push({ ...base, video_id: v.id, route: r.route ?? "youtube_direct", outcome: r.status, detail: r.statusDetail ?? (r.captionLang ? `lang ${r.captionLang}` : null), duration_ms: Date.now() - t0 });
+        logs.push({ ...base, video_id: v.id, route: r.route ?? "decodo_subtitles", outcome: r.status, detail: r.statusDetail ?? (r.captionLang ? `lang ${r.captionLang}` : null), duration_ms: Date.now() - t0 });
         if (r.transcript) await saveTranscript(db, r.id, r.transcript, r.captionLang, r.cues);
         await db.from("videos").update({ ...latestMeta(toRow(r), v), attempts: v.attempts + 1 }).eq("id", v.id);
         if (r.transcript) unlocked.push(v.id);
       } catch (e) {
         const msg = (e as Error).message;
-        logs.push({ ...base, video_id: v.id, route: "youtube_direct", outcome: msg.includes("429") || msg.startsWith("BOT_CHECK") ? "throttled" : "error", detail: msg, duration_ms: Date.now() - t0 });
+        logs.push({ ...base, video_id: v.id, route: "decodo_subtitles", outcome: msg.includes("429") || msg.startsWith("BOT_CHECK") ? "throttled" : "error", detail: msg, duration_ms: Date.now() - t0 });
         if (msg.includes("429") || msg.startsWith("BOT_CHECK")) {
           throttled = true;
           const partial = e instanceof yt.BotCheckError ? fillMissing(e.partial, v) : {};
