@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { addTimestamps } from "@/lib/captions.functions";
 import { subtitleTime, toSubtitle, type Cue } from "@/lib/captions";
 import { download, type Row } from "@/lib/export";
+import { AnalysisPanel } from "./analysis-panel";
 
 export function TranscriptViewer({ row, signedIn }: { row: Row & { cues?: Cue[] }; signedIn: boolean }) {
   const [cues, setCues] = useState(row.cues ?? []);
@@ -47,5 +48,6 @@ export function TranscriptViewer({ row, signedIn }: { row: Row & { cues?: Cue[] 
       <span className="shrink-0 font-mono text-xs text-primary">{subtitleTime(cue.start).slice(0, 8)}</span>
       <span className="text-sm leading-relaxed">{cue.text}</span>
     </Button>)}</div> : <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">{row.transcript ?? row.status_detail ?? "No captions available"}</p>}
+    {signedIn && row.transcript && <AnalysisPanel videoId={row.id} onSeek={setSeek} />}
   </div>;
 }

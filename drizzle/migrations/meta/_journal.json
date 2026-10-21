@@ -29,6 +29,13 @@
       "when": 1792476657073,
       "tag": "0003_timed_captions_and_playlist_membership",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792548341526,
+      "tag": "0004_two_tier_video_analysis",
+      "breakpoints": true
     }
   ]
 }

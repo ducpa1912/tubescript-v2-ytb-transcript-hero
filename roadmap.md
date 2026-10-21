@@ -11,6 +11,9 @@
 - [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
 
 ## Tasks
+- [ ] Build two-tier analysis: free Read, 10-credit Watch, fixed caption segments, shared cache, atomic unlocks.
+- [ ] Build model settings, OpenCode/OpenRouter fallback routing, resumable batch queue and analysis viewer.
+- [ ] Verify analysis pricing, queue, routing and signed-in delivery end-to-end.
 - [x] Priority 1: immutable timed-caption cache, explicit legacy enrichment, SRT/VTT/SBV per-video downloads and click-to-seek viewer.
 - [x] Priority 2: incremental new-video checks, unlocked-transcript keyword search and resumable playlist scans.
 - [x] Priority 1/2 regression checks: 25 tests passed; latest build OK.
