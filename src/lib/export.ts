@@ -1,3 +1,4 @@
+export { formatTimestamp } from "./captions";
 export type Row = {
   id: string;
   title: string;
@@ -20,7 +21,8 @@ export const STATUS_LABEL: Record<string, string> = {
 };
 
 export function fmtDuration(s: number | null) {
-  if (s == null) return "—";
+  if (s == null || !Number.isFinite(s)) return "—";
+  s = Math.max(0, Math.round(s));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   return (h ? `${h}:${String(m).padStart(2, "0")}` : `${m}`) + `:${String(sec).padStart(2, "0")}`;
 }

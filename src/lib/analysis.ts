@@ -5,7 +5,7 @@ export const ANALYSIS_VERSION = 1;
 export const ANALYSIS_COST = { read: 0, watch: 10 } as const;
 export type AnalysisTier = keyof typeof ANALYSIS_COST;
 export const settingsSchema = z.object({
-  // Read is MiniMax free by default; the paid DeepSeek fallback needs an explicit opt-in.
+  // Legacy setting is accepted for stored rows, but never permits paid Read routing.
   readPaidFallback: z.boolean().default(false),
   watchModel: z.enum(["google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite"]).default("google/gemini-3.1-flash-lite"),
   autoRollup: z.boolean().default(false),
@@ -41,33 +41,80 @@ export function buildSegments(transcript: string, cues: Cue[]): Segment[] {
   return out;
 }
 
-export const analysisResultSchema = z.object({
-  summary: z.string().min(1).max(6000),
-  thesis: z.string().min(1).max(3000),
-  hook: z.string().max(3000),
-  structure: z.array(z.object({ segmentId: z.string(), label: z.string().max(500), explanation: z.string().max(2000) })).max(1000),
-  tone: z.string().max(3000),
-  claims: z.array(z.object({ segmentId: z.string(), claim: z.string().max(3000), evidence: z.string().max(3000), caveat: z.string().max(3000) })).max(1000),
-  mentalModels: z.array(z.string().max(2000)).max(30),
-  intent: z.string().max(3000),
-  cta: z.string().max(3000),
-  keyMoments: z.array(z.object({ segmentId: z.string(), label: z.string().max(1000) })).max(1000),
-  observations: z.array(z.object({ segmentId: z.string(), seen: z.string().max(3000), heard: z.string().max(3000), mismatch: z.string().max(3000) })).max(1000).default([]),
-  visualNarrative: z.string().max(6000).default(""),
-  onScreenText: z.array(z.string().max(1000)).max(100).default([]),
-});
+const safeStr = (max = 3000) => z.string().max(max).nullish().transform((v) => v ?? "");
+const score = z.number().min(0).max(1).default(0);
+export const hookAttributesSchema = z.object({ imperative: score, question: score, bold_claim: score,
+  curiosity_gap: score, problem_solution: score, personal_story: score, pattern_interrupt: score });
+const arcSchema = z.preprocess((v) => typeof v === "string" ? { primary: v } : v ?? {},
+  z.object({ primary: safeStr(), arc: safeStr() }));
+const hookSchema = z.preprocess((v) => typeof v === "string" ? { prose: v } : v ?? {},
+  z.object({ prose: safeStr(), attributes: hookAttributesSchema.default({}) }));
+export type HeatMoment = { startMs: number; intensity: number };
+export const analysisResultSchema = z.preprocess((v) => {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return v;
+  const old = v as Record<string, unknown>;
+  // Additive reader compatibility: never rewrite or re-charge existing cached analyses.
+  return { ...old, visual_narrative: old.visual_narrative ?? old.visualNarrative,
+    onScreenText: Array.isArray(old.onScreenText) ? old.onScreenText.map((t) => typeof t === "string" ? { text: t } : t) : old.onScreenText };
+}, z.object({
+  summary: z.string().min(1).max(6000), thesis: z.string().min(1).max(3000),
+  hook: hookSchema, tone: arcSchema, mood: arcSchema,
+  intent: safeStr(), cta: safeStr(), delivery: safeStr(), energy_curve: safeStr(),
+  visual_style: safeStr(), visual_narrative: safeStr(6000),
+  structure: z.array(z.object({ segmentId: z.string(), label: safeStr(500), explanation: safeStr(2000) })).max(1000).default([]),
+  claims: z.array(z.object({ segmentId: z.string(), claim: safeStr(), evidence: safeStr(), caveat: safeStr() })).max(1000).default([]),
+  mentalModels: z.array(safeStr(2000)).max(30).default([]),
+  keyMoments: z.array(z.object({ segmentId: z.string(), label: safeStr(1000), why: safeStr(1000) })).max(1000).default([]),
+  observations: z.array(z.object({ segmentId: z.string(), seen: safeStr(), heard: safeStr(), mismatch: safeStr() })).max(1000).default([]),
+  // Optional id only for legacy cached string entries; new model output requires an anchor below.
+  onScreenText: z.array(z.object({ segmentId: z.string().optional(), text: safeStr(1000) })).max(200).default([]),
+  heatMoments: z.array(z.object({ startMs: z.number().finite().nonnegative(), intensity: z.number().min(0).max(1) })).max(200).default([]),
+}));
 export type AnalysisResult = z.infer<typeof analysisResultSchema>;
 export function validateAnalysis(value: unknown, segments: Segment[], tier: AnalysisTier) {
   const result = analysisResultSchema.parse(value);
   const ids = new Set(segments.map((s) => s.id));
-  for (const item of [...result.structure, ...result.claims, ...result.keyMoments, ...result.observations]) {
-    if (!ids.has(item.segmentId)) throw new Error("Analysis returned an unknown segment anchor.");
+  for (const item of [...result.structure, ...result.claims, ...result.keyMoments, ...result.observations, ...result.onScreenText]) {
+    if (!item.segmentId || !ids.has(item.segmentId)) throw new Error("Analysis returned an unknown segment anchor.");
   }
-  if (tier === "watch" && (!result.observations.length || segments.some((s) => !result.observations.some((o) => o.segmentId === s.id)))) {
-    throw new Error("Watch analysis did not cover every segment.");
+  if (tier === "watch") {
+    if (!result.observations.length) throw new Error("Watch analysis produced no observations.");
+    const covered = new Set(result.observations.map((o) => o.segmentId));
+    if (covered.size !== result.observations.length) throw new Error("Watch analysis returned duplicate observations.");
+    const missing = segments.filter((s) => !covered.has(s.id));
+    if (missing.length > Math.max(2, Math.ceil(segments.length * 0.15))) {
+      throw new Error(`Watch analysis covered only ${covered.size}/${segments.length} segments.`);
+    }
+    for (const s of missing) result.observations.push({ segmentId: s.id, seen: "", heard: "", mismatch: "" });
+    const order = new Map(segments.map((s, i) => [s.id, i]));
+    result.observations.sort((a, b) => (order.get(a.segmentId) ?? 0) - (order.get(b.segmentId) ?? 0));
   }
-  if (tier === "read") result.observations = [];
+  if (tier === "read") { result.observations = []; result.visual_style = ""; result.visual_narrative = ""; result.onScreenText = []; result.heatMoments = []; }
   return result;
+}
+
+/** Caption segments measure speech pacing, NOT visual cuts or B-roll. */
+export function computeVideoFacts(segments: Segment[], durationS = 0, chapterCount = 0) {
+  const intervals = segments.flatMap((s) => s.start != null && s.end != null && s.end > s.start ? [{ start: s.start, end: s.end, speech: Boolean(s.text.trim()) }] : []);
+  const durations = intervals.map((s) => s.end - s.start).sort((a, b) => a - b);
+  const duration = Number.isFinite(durationS) && durationS > 0 ? durationS : Math.max(0, ...intervals.map((s) => s.end));
+  let speechDuration = 0, end = 0;
+  for (const s of intervals.filter((s) => s.speech).sort((a, b) => a.start - b.start)) {
+    speechDuration += Math.max(0, s.end - Math.max(end, s.start)); end = Math.max(end, s.end);
+  }
+  const wordsTotal = segments.reduce((n, s) => n + (s.text.trim() ? s.text.trim().split(/\s+/).length : 0), 0);
+  const round = (n: number) => Math.round(n * 10) / 10;
+  const mid = Math.floor(durations.length / 2);
+  const median = durations.length % 2 ? durations[mid] ?? 0 : ((durations[mid - 1] ?? 0) + (durations[mid] ?? 0)) / 2;
+  return { durationS: round(duration), segmentCount: segments.length, medianSegmentS: round(median), minSegmentS: durations[0] ?? 0,
+    maxSegmentS: durations.at(-1) ?? 0, transcriptSegmentsPerMin: duration ? round(segments.length * 60 / duration) : 0,
+    speechTimePct: duration ? Math.min(100, Math.round(speechDuration * 100 / duration)) : 0,
+    wordsTotal, wordsPerMin: duration ? Math.round(wordsTotal * 60 / duration) : 0,
+    longSegmentCount: durations.filter((d) => d >= 20).length, chapterCount };
+}
+
+export function analysisFailureStatus(attempts: number, terminal = false) {
+  return terminal || attempts >= 3 ? "failed" : "pending";
 }
 export function isFreeModel(model: { id: string; pricing?: { prompt?: string | number; completion?: string | number } }) {
   return model.pricing?.prompt != null && model.pricing?.completion != null

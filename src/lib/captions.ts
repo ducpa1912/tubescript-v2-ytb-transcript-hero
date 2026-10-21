@@ -1,5 +1,14 @@
 export type Cue = { start: number; dur: number; text: string };
 
+/** Round once in integer hundredths, including minute/hour carry. */
+export function formatTimestamp(seconds: number | null): string {
+  if (seconds == null || !Number.isFinite(seconds)) return "—";
+  const ticks = Math.max(0, Math.round(seconds * 100));
+  const h = Math.floor(ticks / 360000), m = Math.floor(ticks / 6000) % 60;
+  const sec = `${String(Math.floor(ticks / 100) % 60).padStart(2, "0")}.${String(ticks % 100).padStart(2, "0")}`;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${Math.floor(ticks / 6000)}:${sec}`;
+}
+
 const decode = (s: string) => s.replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
   .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
   .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
