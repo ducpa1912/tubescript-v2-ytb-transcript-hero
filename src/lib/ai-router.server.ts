@@ -117,7 +117,8 @@ export async function routeAnalysis(input: AnalysisInput, log: (route: Route, ou
       return { result, provider: route.provider, model: route.model, usage: payload.usage ?? payload.usageMetadata ?? {} };
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Provider failed";
-      if (error instanceof Error && (["AbortError", "TimeoutError"].includes(error.name) || /timeout|aborted/i.test(detail))) cooldowns.set(routeKey, Date.now() + 120000);
+      const name = error && typeof error === "object" && "name" in error ? String(error.name) : "";
+      if (["AbortError", "TimeoutError"].includes(name) || /timeout|timed out|aborted/i.test(detail)) cooldowns.set(routeKey, Date.now() + 120000);
       // Owner-only diagnostics retain bounded partial output, never unlock invalid results.
       await log(route, error instanceof AnalysisRouteError && error.terminal ? "failed" : "fallback", rawText ? JSON.stringify({ error: detail, partialResult: rawText.slice(0, 12000) }) : detail, Date.now() - start);
       if (error instanceof AnalysisRouteError && error.terminal) throw error;

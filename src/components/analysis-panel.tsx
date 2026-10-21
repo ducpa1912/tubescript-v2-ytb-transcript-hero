@@ -7,7 +7,7 @@ import { enqueueAnalyses, getAnalyses, getAnalysisSettings, listAnalysisJobs, pr
 import { analysisResultSchema, type AnalysisTier, type Segment } from "@/lib/analysis";
 import { download, formatTimestamp } from "@/lib/export";
 
-export function AnalysisQueueControls({ videoIds, onDelivered, tier }: { videoIds: string[]; onDelivered?: () => void; tier?: AnalysisTier }) {
+export function AnalysisQueueControls({ videoIds, onDelivered, tier }: { videoIds: string[]; onDelivered?: () => void; tier?: AnalysisTier | undefined }) {
   const enqueue = useServerFn(enqueueAnalyses), list = useServerFn(listAnalysisJobs), process = useServerFn(processAnalysisJob), preferences = useServerFn(getAnalysisSettings);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [progress, setProgress] = useState("");
   const stopped = useRef(false), mounted = useRef(true);

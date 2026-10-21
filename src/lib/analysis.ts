@@ -54,8 +54,8 @@ export const analysisResultSchema = z.preprocess((v) => {
   if (!v || typeof v !== "object" || Array.isArray(v)) return v;
   const old = v as Record<string, unknown>;
   // Additive reader compatibility: never rewrite or re-charge existing cached analyses.
-  return { ...old, visual_narrative: old.visual_narrative ?? old.visualNarrative,
-    onScreenText: Array.isArray(old.onScreenText) ? old.onScreenText.map((t) => typeof t === "string" ? { text: t } : t) : old.onScreenText };
+  return { ...old, visual_narrative: old['visual_narrative'] ?? old['visualNarrative'],
+    onScreenText: Array.isArray(old['onScreenText']) ? old['onScreenText'].map((t) => typeof t === "string" ? { text: t } : t) : old['onScreenText'] };
 }, z.object({
   summary: z.string().min(1).max(6000), thesis: z.string().min(1).max(3000),
   hook: hookSchema, tone: arcSchema, mood: arcSchema,
