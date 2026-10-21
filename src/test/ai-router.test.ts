@@ -73,6 +73,6 @@ describe("free fallback reliability", () => {
     const { buildAnalysisPrompt, ANALYSIS_ROUTE_TIMEOUT, ANALYSIS_RUN_BUDGET } = await import("@/lib/ai-router.server");
     const prompt = buildAnalysisPrompt({ ...input, tier: "watch", segments: [{ id: "s01", start: 0, end: 1, text: "Raw" }, { id: "s02", start: 1, end: 2, text: "Dialogue" }] });
     expect(prompt).toContain("s01, s02"); expect(prompt).toContain("No Read analysis is supplied");
-    expect(ANALYSIS_ROUTE_TIMEOUT).toEqual({ read: 65000, watch: 80000 }); expect(ANALYSIS_RUN_BUDGET).toBe(100000);
+    expect(ANALYSIS_ROUTE_TIMEOUT).toEqual({ read: 600000, watch: 600000 }); expect(ANALYSIS_RUN_BUDGET).toBe(610000);
   });
 });
