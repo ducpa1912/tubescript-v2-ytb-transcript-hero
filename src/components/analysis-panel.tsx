@@ -91,6 +91,8 @@ export function AnalysisPanel({ videoId, onSeek }: { videoId: string; onSeek: (s
       {result.claims.length > 0 && <div><h4 className="font-medium">Claims & evidence</h4>{result.claims.map((c, i) => <div key={i} className="mt-2 space-y-1 border-b pb-3">{anchor(c.segmentId)}<p className="font-medium">{c.claim}</p><p>{c.evidence}</p><p className="text-muted-foreground">{c.caveat}</p></div>)}</div>}
       {result.keyMoments.length > 0 && <div><h4 className="font-medium">Key moments</h4>{result.keyMoments.map((m, i) => <p key={i}>{anchor(m.segmentId)} {m.label}</p>)}</div>}
       {result.observations.length > 0 && <div><h4 className="font-medium">Seen & heard</h4>{result.observations.map((o, i) => <div className="mt-3 space-y-1 border-b pb-3" key={i}>{anchor(o.segmentId)}<p><strong>Seen:</strong> {o.seen}</p><p><strong>Heard:</strong> {o.heard}</p>{o.mismatch && <p className="text-warning"><strong>Mismatch:</strong> {o.mismatch}</p>}</div>)}</div>}
+      {selected === "watch" && result.visualNarrative && <div><h4 className="font-medium">Visual narrative</h4><p className="mt-1 leading-relaxed">{result.visualNarrative}</p></div>}
+      {selected === "watch" && result.onScreenText.length > 0 && <div><h4 className="font-medium">On-screen text & graphics</h4><ul className="mt-1 list-disc space-y-1 pl-4">{result.onScreenText.map((t, i) => <li key={i}>{t}</li>)}</ul></div>}
     </div> : <p className="text-sm text-muted-foreground">{selected === "read" ? "No Read analysis yet." : "No Watch analysis unlocked."}</p>}
   </section>;
 }
