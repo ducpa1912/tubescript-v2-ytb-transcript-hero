@@ -20,7 +20,9 @@ async function catalog(provider: keyof typeof bases) {
   return models;
 }
 export async function availableRoutes(settings: AnalysisSettings, tier: AnalysisTier): Promise<Route[]> {
-  const providers = (settings.provider === "auto" ? ["opencode-go", "opencode-zen", "openrouter"] : [settings.provider]) as (keyof typeof bases)[];
+  // OpenCode blocks its free models outside its own harness, so Read is OpenRouter-only.
+  // Watch prefers OpenCode Zen (paid credits) with OpenRouter as fallback.
+  const providers = (tier === "read" ? ["openrouter"] : ["opencode-zen", "openrouter"]) as (keyof typeof bases)[];
   const routes: Route[] = [];
   for (const provider of providers) {
     if (!(provider === "openrouter" ? process.env["OPENROUTER_API_KEY"] : process.env["OPENCODE_API_KEY"])) continue;
@@ -36,7 +38,8 @@ export async function availableRoutes(settings: AnalysisSettings, tier: Analysis
         if (model && (provider === "openrouter" ? isFreeModel(model) : id.endsWith("-free"))) routes.push({ provider, model: id, endpoint: provider === "openrouter" ? `${bases[provider]}/v1/chat/completions` : `${bases[provider]}/openai/v1/chat/completions` });
       }
     } else {
-      const ids = [settings.watchModel, ...(settings.autoRollup && settings.watchModel !== "google/gemini-3.5-flash-lite" ? ["google/gemini-3.5-flash-lite"] : [])];
+      const ids = provider === "opencode-zen" ? ["google/gemini-3.5-flash-lite"]
+        : [settings.watchModel, ...(settings.autoRollup && settings.watchModel !== "google/gemini-3.5-flash-lite" ? ["google/gemini-3.5-flash-lite"] : [])];
       for (const id of ids) {
         const modelId = provider === "openrouter" ? id : id.replace("google/", "");
         const model = models.find((m) => m.id === modelId);
