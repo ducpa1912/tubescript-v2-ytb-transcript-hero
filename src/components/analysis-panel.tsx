@@ -11,10 +11,15 @@ import { WatchEvidence } from "./watch-evidence";
 
 export function AnalysisQueueControls({ videoIds, onDelivered, tier, refreshWatch = false }: { videoIds: string[]; onDelivered?: () => void; tier?: AnalysisTier | undefined; refreshWatch?: boolean }) {
   const enqueue = useServerFn(enqueueAnalyses), list = useServerFn(listAnalysisJobs), process = useServerFn(processAnalysisJob), preferences = useServerFn(getAnalysisSettings);
-  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [progress, setProgress] = useState("");
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [progress, setProgress] = useState(""), [elapsed, setElapsed] = useState(0);
   const stopped = useRef(false), mounted = useRef(true);
   const query = useQueryClient();
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; stopped.current = true; }; }, []);
+  useEffect(() => {
+    if (!busy) { setElapsed(0); return; }
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
   async function drain() {
     setBusy(true); setError(null); stopped.current = false;
     try {
