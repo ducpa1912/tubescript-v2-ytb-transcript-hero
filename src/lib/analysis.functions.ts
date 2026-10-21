@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { ANALYSIS_COST, ANALYSIS_VERSION, DEFAULT_ANALYSIS_SETTINGS, analysisFailureStatus, buildSegments, settingsSchema, type AnalysisTier, type AnalysisSettings } from "./analysis";
 import { normalizeCues } from "./captions";
 import type { Json } from "@/integrations/supabase/types";
+import { WATCH_FORMAT, watchNeedsRefresh } from "./watch";
 
 const videoId = z.string().regex(/^[\w-]{11}$/);
 const tier = z.enum(["read", "watch"]);
@@ -41,7 +42,8 @@ export const listAnalysisJobs = createServerFn({ method: "GET" }).middleware([re
   return [...(active.data ?? []), ...(recent.data ?? [])];
 });
 export const enqueueAnalyses = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
-  .inputValidator((input) => z.object({ videoIds: z.array(videoId).min(1).max(10), tier }).parse(input)).handler(async ({ data, context }) => {
+  .inputValidator((input) => z.object({ videoIds: z.array(videoId).min(1).max(10), tier, refresh: z.boolean().default(false) }).parse(input)).handler(async ({ data, context }) => {
+    if (data.refresh && data.tier !== "watch") throw new Error("Only Watch supports refresh.");
     const ids = [...new Set(data.videoIds)];
     const [{ data: access, error: accessError }, { data: preferences }] = await Promise.all([
       context.supabase.from("user_video_unlocks").select("video_id").eq("user_id", context.userId).in("video_id", ids),
@@ -50,9 +52,13 @@ export const enqueueAnalyses = createServerFn({ method: "POST" }).middleware([re
     if (accessError || access?.length !== ids.length) throw new Error("Unlock every selected transcript before analysis.");
     const settings = settingsSchema.parse(preferences?.settings ?? DEFAULT_ANALYSIS_SETTINGS);
     const { supabaseAdmin: db } = await import("@/integrations/supabase/client.server");
-    const { data: caches, error: cacheError } = await db.from("video_analyses").select("video_id").in("video_id", ids).eq("tier", data.tier).eq("version", ANALYSIS_VERSION);
+    if (data.refresh) {
+      const { data: unlocks, error: unlockError } = await context.supabase.from("user_analysis_unlocks").select("video_id").eq("user_id", context.userId).eq("tier", "watch").eq("version", ANALYSIS_VERSION).in("video_id", ids);
+      if (unlockError || unlocks?.length !== ids.length) throw new Error("Unlock Watch before refreshing it.");
+    }
+    const { data: caches, error: cacheError } = await db.from("video_analyses").select("video_id,watch_format").in("video_id", ids).eq("tier", data.tier).eq("version", ANALYSIS_VERSION);
     if (cacheError) throw new Error("Could not read analysis cache.");
-    if (caches?.length !== ids.length) {
+    if (data.refresh || caches?.length !== ids.length || (data.tier === "watch" && caches.some((c) => c.watch_format !== WATCH_FORMAT))) {
       const { availableRoutes } = await import("./ai-router.server");
       if (!(await availableRoutes(settings, data.tier)).length) throw new Error("No eligible model is available. Check model settings.");
     }
@@ -60,21 +66,22 @@ export const enqueueAnalyses = createServerFn({ method: "POST" }).middleware([re
     if (oldError) throw new Error("Could not load existing jobs.");
     const fresh = ids.filter((id) => !old?.some((j) => j.video_id === id));
     if (fresh.length) {
-      const { error } = await db.from("analysis_jobs").upsert(fresh.map((id) => ({ user_id: context.userId, video_id: id, tier: data.tier, settings: asJson(settings) })), { onConflict: "user_id,video_id,tier,version", ignoreDuplicates: true });
+      const { error } = await db.from("analysis_jobs").upsert(fresh.map((id) => ({ user_id: context.userId, video_id: id, tier: data.tier, settings: asJson(settings), refresh_requested_at: data.refresh ? new Date().toISOString() : null })), { onConflict: "user_id,video_id,tier,version", ignoreDuplicates: true });
       if (error) throw new Error("Could not queue analyses.");
     }
-    const retries = old?.filter((j) => j.status === "failed").map((j) => j.id) ?? [];
+    const stale = new Set(caches?.filter((c) => data.tier === "watch" && c.watch_format !== WATCH_FORMAT).map((c) => c.video_id));
+    const retries = old?.filter((j) => j.status === "failed" || (j.status === "done" && (data.refresh || stale.has(j.video_id)))).map((j) => j.id) ?? [];
     if (retries.length) {
-      const { error } = await db.from("analysis_jobs").update({ status: "pending", attempts: 0, error: null, lease_until: null, available_at: new Date().toISOString(), settings: asJson(settings) }).eq("user_id", context.userId).in("id", retries);
+      const { error } = await db.from("analysis_jobs").update({ status: "pending", attempts: 0, error: null, lease_until: null, refresh_requested_at: data.refresh ? new Date().toISOString() : null, available_at: new Date().toISOString(), settings: asJson(settings) }).eq("user_id", context.userId).in("id", retries).in("status", ["done", "failed"]);
       if (error) throw new Error("Could not retry analyses.");
     }
     return { queued: fresh.length + retries.length };
   });
 
-async function generate(db: Db, user: string, id: string, analysisTier: AnalysisTier, settings: AnalysisSettings) {
+async function generate(db: Db, user: string, id: string, analysisTier: AnalysisTier, settings: AnalysisSettings, requestedAt?: string | null) {
   const cached = await db.from("video_analyses").select("*").eq("video_id", id).eq("tier", analysisTier).eq("version", ANALYSIS_VERSION).maybeSingle();
   if (cached.error) throw new Error("Could not read analysis cache.");
-  if (cached.data) return cached.data;
+  if (cached.data && (analysisTier === "read" || !watchNeedsRefresh(cached.data, requestedAt))) return cached.data;
   const token = crypto.randomUUID();
   const { data: claimed, error } = await db.rpc("claim_analysis_generation", { _video: id, _tier: analysisTier, _version: ANALYSIS_VERSION, _token: token });
   if (error || !claimed) throw new Error("Another analysis is running; retry shortly.");
