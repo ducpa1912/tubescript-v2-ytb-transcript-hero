@@ -1,17 +1,14 @@
 // Keyless YouTube extractor. Pure fetch — safe for the Worker runtime.
 // Discovery: channel /videos tab (ytInitialData) + innertube browse continuations, RSS feed as cross-check.
-// Metadata: innertube WEB player (microformat). Captions: innertube ANDROID player -> timedtext XML.
-import { parseCaptionXml, type Cue } from "./captions";
+// Caption extraction and per-video metadata: Decodo Web Data API.
+import { type Cue } from "./captions";
 import { isKnownPage } from "./collections";
-import { decodoEnabled, decodoMetadata, decodoSubtitles } from "./decodo.server";
+import { decodoMetadata, decodoSubtitles } from "./decodo.server";
 import type { HeatMoment } from "./analysis";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 const WEB_VERSION_FALLBACK = "2.20261001.01.00";
-const ANDROID_CLIENT = { clientName: "ANDROID", clientVersion: "20.10.38", androidSdkVersion: 30, hl: "en", gl: "US" };
-const IOS_CLIENT = { clientName: "IOS", clientVersion: "20.10.4", deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iPhone", osVersion: "18.3.2.22D82", hl: "en", gl: "US" };
-const IOS_UA = "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)";
 
 export type DiscoveredVideo = { id: string; title: string; durationSeconds?: number | null; views?: number | null; publishDate?: string | null };
 
@@ -304,99 +301,21 @@ function decodeXml(s: string): string {
 }
 
 
-async function player(videoId: string, client: Record<string, unknown>, ua?: string) {
-  const r = await fetchRetry("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...(ua ? { "User-Agent": ua } : {}) },
-    body: JSON.stringify({ videoId, context: { client }, contentCheckOk: true, racyCheckOk: true }),
-  });
-  if (!r.ok) throw new Error(`player HTTP ${r.status}`);
-  return r.json() as Promise<any>;
-}
-
-/** Fetch metadata + English transcript for one video. Falls back to Decodo (if configured) when YouTube blocks us. */
+/** All fresh extraction uses Decodo; callers check the shared cache first. */
 export async function extractVideo(videoId: string, knownTitle?: string | null): Promise<VideoResult> {
-  try {
-    return { ...(await extractDirect(videoId, knownTitle)), route: "youtube_direct" };
-  } catch (e) {
-    if (!decodoEnabled()) throw e;
-    const partial: VideoResult = e instanceof BotCheckError ? e.partial : {
-      id: videoId, title: knownTitle ?? "", publishDate: null, views: null, durationSeconds: null,
-      isShort: false, status: "no_captions", captionLang: null, transcript: null, statusDetail: null,
-    };
-    try {
-      const [meta, subs] = await Promise.all([
-        partial.title && partial.views != null && partial.durationSeconds != null ? null : decodoMetadata(videoId).catch(() => null),
-        decodoSubtitles(videoId),
-      ]);
-      const base: VideoResult = {
-        ...partial,
-        title: partial.title || meta?.title || knownTitle || "",
-        views: partial.views ?? meta?.views ?? null,
-        durationSeconds: partial.durationSeconds ?? meta?.durationSeconds ?? null,
-        publishDate: partial.publishDate ?? meta?.publishDate ?? null,
-      };
-      const route = meta ? "decodo_subtitles+metadata" : "decodo_subtitles";
-      if (!subs) return { ...base, route, status: "no_captions", statusDetail: "No English subtitles available" };
-      return { ...base, route, status: "ok", captionLang: subs.lang, transcript: subs.transcript, cues: subs.cues, statusDetail: null };
-    } catch {
-      throw e; // keep original (retryable) error
-    }
-  }
-}
-
-async function extractDirect(videoId: string, knownTitle?: string | null): Promise<VideoResult> {
-  const [web, first] = await Promise.all([
-    player(videoId, { clientName: "WEB", clientVersion: WEB_VERSION_FALLBACK, hl: "en", gl: "US" }).catch(() => null),
-    player(videoId, ANDROID_CLIENT, "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip").catch(() => null),
+  const [meta, subs] = await Promise.all([
+    decodoMetadata(videoId).catch(() => null), // Metadata failure must not discard delivered captions.
+    decodoSubtitles(videoId),
   ]);
-  let android = first;
-  const hasTracks = (p: any) => (p?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? []).length > 0;
-  if (!hasTracks(android)) {
-    const ios = await player(videoId, IOS_CLIENT, IOS_UA).catch(() => null);
-    if (ios && (hasTracks(ios) || !android?.videoDetails)) android = ios;
-  }
-  const vd = android?.videoDetails ?? web?.videoDetails ?? {};
-  const mf = web?.microformat?.playerMicroformatRenderer ?? {};
   const base: VideoResult = {
-    id: videoId,
-    title: vd.title || textOf(mf.title) || knownTitle || "",
-    publishDate: mf.publishDate ?? mf.uploadDate ?? null,
-    views: vd.viewCount != null ? Number(vd.viewCount) : mf.viewCount != null ? Number(mf.viewCount) : null,
-    durationSeconds: vd.lengthSeconds != null ? Number(vd.lengthSeconds) : mf.lengthSeconds != null ? Number(mf.lengthSeconds) : null,
-    isShort: false,
-    status: "no_captions",
-    captionLang: null,
-    transcript: null,
-    statusDetail: null,
+    id: videoId, title: meta?.title || knownTitle || "",
+    views: meta?.views ?? null, durationSeconds: meta?.durationSeconds ?? null,
+    publishDate: meta?.publishDate ?? null, isShort: false,
+    status: "no_captions", captionLang: null, transcript: null, statusDetail: "No English subtitles available",
+    route: meta ? "decodo_subtitles+metadata" : "decodo_subtitles",
   };
-  const blocked = accessBlock([android, web]);
-  if (!vd.videoId && !mf.title) {
-    const reason = android?.playabilityStatus?.reason ?? web?.playabilityStatus?.reason ?? "Video unavailable";
-    if (blocked || (!android && !web)) throw new BotCheckError(blocked ?? reason, base);
-    return { ...base, status: "unavailable", statusDetail: reason };
-  }
-  const tracks: any[] = android?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
-  if (!tracks.length) {
-    // A login/bot wall hides caption tracks; it is not proof that captions don't exist.
-    if (blocked) throw new BotCheckError(blocked, base);
-    const s = android?.playabilityStatus?.status;
-    const reason = android?.playabilityStatus?.reason ?? "";
-    return { ...base, statusDetail: s && s !== "OK" ? reason || s : "No captions available" };
-  }
-  // English only: creator-uploaded English first, then auto-generated English. Other languages are ignored.
-  const english = tracks.filter((t) => /^en\b|^en-/i.test(String(t.languageCode)));
-  if (!english.length) return { ...base, statusDetail: "No English subtitles available" };
-  const track = english.find((t) => t.kind !== "asr") ?? english[0];
-  try {
-    const r = await fetchRetry(track.baseUrl.replace(/&fmt=[^&]*/, ""));
-    const xml = await r.text();
-    const { transcript: text, cues } = parseCaptionXml(xml);
-    if (!text) return { ...base, statusDetail: "Caption track was empty" };
-    return { ...base, status: "ok", captionLang: "en" + (track.kind === "asr" ? " (auto)" : ""), transcript: text, cues };
-  } catch (e) {
-    throw new Error(`Caption download failed: ${(e as Error).message}`);
-  }
+  if (!subs) return base;
+  return { ...base, status: "ok", captionLang: subs.lang, transcript: subs.transcript, cues: subs.cues, statusDetail: null };
 }
 
 /** Run tasks with a fixed concurrency pool (Worker outbound cap is 6). */
