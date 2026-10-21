@@ -4,6 +4,7 @@
 import { parseCaptionXml, type Cue } from "./captions";
 import { isKnownPage } from "./collections";
 import { decodoEnabled, decodoMetadata, decodoSubtitles } from "./decodo.server";
+import type { HeatMoment } from "./analysis";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
@@ -120,6 +121,47 @@ function* walk(o: any, key: string): Generator<any> {
 }
 
 const textOf = (t: any): string => t?.simpleText ?? (t?.runs || []).map((r: any) => r.text).join("") ?? t?.content ?? "";
+
+/** Public replay intensity is not audience retention. Never invent missing markers. */
+export function parseVideoSignals(html: string): { heatMoments: HeatMoment[]; chapters: { startS: number; title: string }[] } {
+  const data = extractJsonAfter(html, "var ytInitialData") ?? extractJsonAfter(html, 'window["ytInitialData"]') ?? extractJsonAfter(html, "ytInitialData =");
+  const heat = new Map<number, HeatMoment>();
+  for (const list of walk(data, "markersList")) {
+    if (list?.markerType !== "MARKER_TYPE_HEATMAP") continue;
+    for (const marker of list.markers ?? []) {
+      const startMs = Number(marker.startMillis), intensity = Number(marker.intensityScoreNormalized);
+      if (Number.isFinite(startMs) && startMs >= 0 && Number.isFinite(intensity) && intensity >= 0 && intensity <= 1) heat.set(startMs, { startMs, intensity });
+    }
+  }
+  // Older watch-page payloads use heatMarkerRenderer instead.
+  for (const marker of walk(data, "heatMarkerRenderer")) {
+    const startMs = Number(marker.timeRangeStartMillis), intensity = Number(marker.heatMarkerIntensityScoreNormalized);
+    if (Number.isFinite(startMs) && startMs >= 0 && Number.isFinite(intensity) && intensity >= 0 && intensity <= 1) heat.set(startMs, { startMs, intensity });
+  }
+  const chapters = new Map<number, { startS: number; title: string }>();
+  for (const chapter of walk(data, "chapterRenderer")) {
+    const startS = Number(chapter.timeRangeStartMillis) / 1000, title = textOf(chapter.title);
+    if (Number.isFinite(startS) && startS >= 0 && title) chapters.set(startS, { startS, title });
+  }
+  for (const list of walk(data, "macroMarkersListRenderer")) {
+    for (const item of list?.contents ?? []) {
+      const marker = item.macroMarkersListItemRenderer;
+      const startS = Number(marker?.onTap?.watchEndpoint?.startTimeSeconds), title = textOf(marker?.title);
+      if (Number.isFinite(startS) && startS >= 0 && title) chapters.set(startS, { startS, title });
+    }
+  }
+  return { heatMoments: [...heat.values()].sort((a, b) => a.startMs - b.startMs).slice(0, 200), chapters: [...chapters.values()].sort((a, b) => a.startS - b.startS).slice(0, 200) };
+}
+
+export async function extractVideoSignals(videoId: string) {
+  try {
+    const response = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en`, {
+      headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9", Cookie: "CONSENT=YES+1" }, signal: AbortSignal.timeout(6000),
+    });
+    if (!response.ok) { await response.body?.cancel(); return { heatMoments: [], chapters: [] }; }
+    return parseVideoSignals(await response.text());
+  } catch { return { heatMoments: [], chapters: [] }; }
+}
 
 export type ParsedInput = { kind: "video"; videoId: string } | { kind: "channel"; url: string } | { kind: "playlist"; url: string; playlistId: string };
 
