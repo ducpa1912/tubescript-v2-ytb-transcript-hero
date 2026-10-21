@@ -11,6 +11,7 @@
 - [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
 
 ## Tasks
+- [ ] Switch fresh caption extraction, retries and timestamp enrichment to Decodo directly; verify real affected video and routing regressions.
 - [x] Build latest-only richer Watch moments, expandable categories, atomic refresh replacement and separate audiovisual presentation; preserve transcript data and existing unlocks. 37 focused regression checks passed.
 - [ ] Verify latest Watch refresh end-to-end: signed-in browser attempt still renders a blank page while local client requests stall; no paid comparison runs created.
 - [x] Apply five analysis reliability fixes: verified free cascade, timeout cooldowns/budget, null safety, bounded coverage and terminal retry handling.
