@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Eye, Download, Loader2, Play, Pause } from "lucide-react";
@@ -76,7 +75,7 @@ export function AnalysisPanel({ videoId, onSeek }: { videoId: string; onSeek: (s
     return <Button size="sm" variant="ghost" className="h-auto px-1 font-mono text-xs text-primary" disabled={segment?.start == null} onClick={() => { if (segment?.start != null) onSeek(segment.start); }}>{segment?.start == null ? id : fmtDuration(segment.start)}</Button>;
   }
   return <section className="space-y-4 border-t pt-4">
-    <div className="flex items-center justify-between"><h3 className="font-semibold">Video analysis</h3><Link to="/settings" className="text-xs text-primary underline">Model settings</Link></div>
+    <h3 className="font-semibold">Video analysis</h3>
     <AnalysisQueueControls videoIds={[videoId]} onDelivered={() => void refresh()} />
     <div className="flex gap-2" role="tablist" aria-label="Analysis tiers">
       {(["read", "watch"] as const).map((t) => <Button key={t} role="tab" aria-selected={selected === t} variant={selected === t ? "secondary" : "ghost"} size="sm" onClick={() => setSelected(t)}>{t === "read" ? <BookOpen /> : <Eye />}{t === "read" ? "Read" : "Watch"}{analyses.some((a) => a.tier === t) ? " ✓" : ""}</Button>)}
