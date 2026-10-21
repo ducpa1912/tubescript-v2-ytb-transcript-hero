@@ -38,11 +38,9 @@
 - Caption parsing and subtitle serialization live in client-safe captions.ts; authenticated timestamp enrichment lives in captions.functions.ts.
 
 ## Video analysis
-- Versioned shared analysis and per-user unlocks use the existing wallet lock for atomic delivery; legacy transcript text and cue anchors never change.
-- Model/provider settings are internal-only: no end-user settings UI or route; per-user `analysis_settings` rows (or defaults) govern routing, changed via the database, not the app UI.
-
-- Leased per-user jobs drain in browser batches with three concurrent independent invocations; global generation leases prevent overlapping model calls.
-- Read only uses catalog-verified zero-cost IDs. Watch requires actual provider-specific video input.
-- Provider calls share a 100s run budget below the generation lease; cooldowns key provider:model, and terminal denials stop retries.
-- Normalize legacy analysis shapes on read without mutation/recharging; only validated output unlocks, partial failure diagnostics stay owner-only.
-- Caption facts measure speech, not cuts/B-roll; public replay heat is not retention. Watch never receives Read output.
+- Watch atomically replaces its current cache and child moments under a generation token; preserve unlocks and wallet-lock delivery to prevent repeat charges. Transcript text/cues never change.
+- Old Watch output remains a string until successful refresh replaces it. Format markers describe shape, not prompt history; only validated moments publish, diagnostics stay owner-only.
+- Client-safe watch.ts validates moments; watch-evidence.tsx separates picture, effects and voice from wording tone.
+- Internal analysis_settings govern providers; no end-user settings UI. Read uses verified zero-cost models; Watch uses genuine video input and never Read output.
+- Browser jobs run three concurrent independent invocations with generation leases and a 100s provider budget. Cooldowns key provider:model; terminal denials stop retries.
+- Caption facts measure speech, not cuts/B-roll; replay heat is not retention.

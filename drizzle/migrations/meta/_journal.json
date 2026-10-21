@@ -43,6 +43,13 @@
       "when": 1792548772974,
       "tag": "0005_recover_expired_analysis_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792567420564,
+      "tag": "0006_latest_watch_moments",
+      "breakpoints": true
     }
   ]
 }
