@@ -53,6 +53,7 @@ export async function decodoSubtitles(videoId: string): Promise<{ transcript: st
 /** Select an English creator track before auto tracks; window events need not contain text. */
 export function parseDecodoSubtitles(c: any): { transcript: string; lang: string; cues: Cue[] } | null {
   if (!c) return null;
+  if (typeof c === "object" && !Array.isArray(c) && Object.keys(c).length === 0) return null;
   const englishTrack = (tracks: any) => tracks && typeof tracks === "object"
     ? Object.entries(tracks).filter(([lang]) => /^en(?:$|[-_])/i.test(lang)).map(([, track]) => track) : [];
   const manual = englishTrack(c.uploader_provided ?? c.manual ?? c.manually_generated ?? c.subtitles ?? c.creator_uploaded);

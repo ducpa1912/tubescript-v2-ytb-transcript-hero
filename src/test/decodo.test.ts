@@ -51,7 +51,7 @@ describe("Decodo caption extraction", () => {
       const body = JSON.parse(String(init.body));
       if (body.target === "youtube_metadata") return new Response(JSON.stringify({ content: {} }));
       origins.push(body.subtitle_origin);
-      return body.subtitle_origin === "uploader_provided" ? new Response("", { status: 404 })
+      return body.subtitle_origin === "uploader_provided" ? new Response(JSON.stringify({ results: [{ status_code: 200, content: {} }] }))
         : new Response(JSON.stringify({ content: { auto_generated: { en: track("Auto fallback") } } }));
     }));
     expect((await extractVideo("fXDc02qHAhY")).transcript).toBe("Auto fallback");
