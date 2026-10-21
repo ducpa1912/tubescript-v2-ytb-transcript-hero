@@ -39,5 +39,7 @@
 
 ## Video analysis
 - Versioned shared analysis and per-user unlocks use the existing wallet lock for atomic delivery; legacy transcript text and cue anchors never change.
+- Model/provider settings are internal-only: no end-user settings UI or route; per-user `analysis_settings` rows (or defaults) govern routing, changed via the database, not the app UI.
+
 - Leased per-user jobs drain in browser batches with three concurrent independent invocations; global generation leases prevent overlapping model calls.
 - Catalog-verified free Read routes never fall back to paid IDs; Watch uses actual video input with provider-specific APIs, not guessed visuals.
