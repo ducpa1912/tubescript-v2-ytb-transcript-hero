@@ -87,14 +87,9 @@ async function generate(db: Db, user: string, id: string, analysisTier: Analysis
     if (!text?.transcript) throw new Error("Transcript is missing. No credits spent.");
     const segments = buildSegments(text.transcript, normalizeCues(timings?.cues));
     if (analysisTier === "watch" && segments.some((s) => s.start == null)) throw new Error("Add timestamps before Watch analysis. No credits spent.");
-    let read;
-    if (analysisTier === "watch") {
-      const { data: previous } = await db.from("video_analyses").select("result").eq("video_id", id).eq("tier", "read").eq("version", ANALYSIS_VERSION).maybeSingle();
-      const { analysisResultSchema } = await import("./analysis");
-      read = analysisResultSchema.parse(previous?.result);
-    }
+    // Watch runs independently from Read: no tier-1 output is fed in, so it cannot be diluted or anchored.
     const { routeAnalysis } = await import("./ai-router.server");
-    const result = await routeAnalysis({ tier: analysisTier, videoId: id, title: video?.title ?? id, segments, settings, read }, async (route, outcome, detail, ms) => {
+    const result = await routeAnalysis({ tier: analysisTier, videoId: id, title: video?.title ?? id, segments, settings }, async (route, outcome, detail, ms) => {
       try { await db.from("pipeline_logs").insert({ user_id: user, video_id: id, stage: `analysis_${analysisTier}`, route: `${route.provider}/${route.model}`, outcome, detail, duration_ms: ms }); } catch { /* Logging must not stop delivery. */ }
     });
     const { error: saveError } = await db.from("video_analyses").upsert({ video_id: id, tier: analysisTier, version: ANALYSIS_VERSION, result: asJson(result.result), segments: asJson(segments), provider: result.provider, model: result.model, usage: asJson(result.usage) }, { onConflict: "video_id,tier,version", ignoreDuplicates: true });
@@ -125,14 +120,6 @@ export const processAnalysisJob = createServerFn({ method: "POST" }).middleware(
           context.supabase.from("wallets").select("credits").eq("user_id", context.userId).maybeSingle(),
         ]);
         if (!unlocked && (wallet?.credits ?? 0) < ANALYSIS_COST.watch) throw new Error("Watch requires 10 credits. No credits spent.");
-        const { data: read } = await db.from("video_analyses").select("video_id").eq("video_id", job.video_id).eq("tier", "read").eq("version", ANALYSIS_VERSION).maybeSingle();
-        if (!read) {
-          await generate(db, context.userId, job.video_id, "read", settingsSchema.parse(job.settings));
-          await db.rpc("deliver_analysis_unlock", { _user: context.userId, _video: job.video_id, _tier: "read", _version: ANALYSIS_VERSION });
-          await db.from("analysis_jobs").update({ status: "pending", attempts: Math.max(0, job.attempts - 1), lease_until: null, available_at: new Date().toISOString(), error: null }).eq("id", job.id);
-          return { status: "read_complete" };
-        }
-        await db.rpc("deliver_analysis_unlock", { _user: context.userId, _video: job.video_id, _tier: "read", _version: ANALYSIS_VERSION });
       }
       await generate(db, context.userId, job.video_id, analysisTier, settingsSchema.parse(job.settings));
       const { data: delivered, error: deliveryError } = await db.rpc("deliver_analysis_unlock", { _user: context.userId, _video: job.video_id, _tier: analysisTier, _version: ANALYSIS_VERSION });

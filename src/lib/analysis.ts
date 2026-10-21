@@ -5,7 +5,8 @@ export const ANALYSIS_VERSION = 1;
 export const ANALYSIS_COST = { read: 0, watch: 10 } as const;
 export type AnalysisTier = keyof typeof ANALYSIS_COST;
 export const settingsSchema = z.object({
-  readFamily: z.enum(["minimax", "deepseek"]).default("minimax"),
+  // Read is MiniMax free by default; the paid DeepSeek fallback needs an explicit opt-in.
+  readPaidFallback: z.boolean().default(false),
   watchModel: z.enum(["google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite"]).default("google/gemini-3.1-flash-lite"),
   autoRollup: z.boolean().default(false),
   provider: z.enum(["auto", "opencode-go", "opencode-zen", "openrouter"]).default("auto"),
@@ -52,6 +53,8 @@ export const analysisResultSchema = z.object({
   cta: z.string().max(3000),
   keyMoments: z.array(z.object({ segmentId: z.string(), label: z.string().max(1000) })).max(1000),
   observations: z.array(z.object({ segmentId: z.string(), seen: z.string().max(3000), heard: z.string().max(3000), mismatch: z.string().max(3000) })).max(1000).default([]),
+  visualNarrative: z.string().max(6000).default(""),
+  onScreenText: z.array(z.string().max(1000)).max(100).default([]),
 });
 export type AnalysisResult = z.infer<typeof analysisResultSchema>;
 export function validateAnalysis(value: unknown, segments: Segment[], tier: AnalysisTier) {
