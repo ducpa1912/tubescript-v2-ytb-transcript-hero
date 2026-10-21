@@ -144,8 +144,11 @@ export const processAnalysisJob = createServerFn({ method: "POST" }).middleware(
       await db.from("pipeline_logs").insert({ user_id: context.userId, video_id: job.video_id, stage: "analysis_billing", route: "shared_cache_unlock", outcome: "delivered", detail: `${analysisTier}: ${delivery.charged ?? 0} credits` });
       return { status: "done" };
     } catch (e) {
-      const detail = e instanceof Error ? e.message : "Analysis failed.";
-      const terminal = (e instanceof Error && "terminal" in e && e.terminal === true) || /10 credits|Unlock this transcript|Add timestamps|Transcript is missing/.test(detail);
+      const raw = e instanceof Error ? e.message : "Analysis failed.";
+      // A 10-minute timeout is terminal for this request: the user explicitly re-sends it.
+      const timedOut = /timeout|timed out|aborted/i.test(raw);
+      const detail = timedOut ? "Analysis timed out after 10 minutes. Send the request again to retry." : raw;
+      const terminal = timedOut || (e instanceof Error && "terminal" in e && e.terminal === true) || /10 credits|Unlock this transcript|Add timestamps|Transcript is missing/.test(raw);
       const status = analysisFailureStatus(job.attempts, terminal);
       const wait = 5000 * 2 ** job.attempts + Math.round(Math.random() * 1000);
       const { error: updateError } = await db.from("analysis_jobs").update({ status, error: detail, lease_until: null, available_at: new Date(Date.now() + wait).toISOString(), updated_at: new Date().toISOString() }).eq("id", job.id);

@@ -11,10 +11,15 @@ import { WatchEvidence } from "./watch-evidence";
 
 export function AnalysisQueueControls({ videoIds, onDelivered, tier, refreshWatch = false }: { videoIds: string[]; onDelivered?: () => void; tier?: AnalysisTier | undefined; refreshWatch?: boolean }) {
   const enqueue = useServerFn(enqueueAnalyses), list = useServerFn(listAnalysisJobs), process = useServerFn(processAnalysisJob), preferences = useServerFn(getAnalysisSettings);
-  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [progress, setProgress] = useState("");
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [progress, setProgress] = useState(""), [elapsed, setElapsed] = useState(0);
   const stopped = useRef(false), mounted = useRef(true);
   const query = useQueryClient();
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; stopped.current = true; }; }, []);
+  useEffect(() => {
+    if (!busy) { setElapsed(0); return; }
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
   async function drain() {
     setBusy(true); setError(null); stopped.current = false;
     try {
@@ -52,7 +57,8 @@ export function AnalysisQueueControls({ videoIds, onDelivered, tier, refreshWatc
       {busy ? <Button size="icon" variant="ghost" title="Pause queue" aria-label="Pause analysis queue" onClick={() => { stopped.current = true; }}><Pause /></Button> : <Button size="icon" variant="ghost" title="Resume queue" aria-label="Resume analysis queue" onClick={() => void drain()}><Play /></Button>}
       {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
     </div>
-    {progress && <p role="status" className="text-xs text-muted-foreground">{progress}</p>}
+    {busy && <p role="status" className="text-xs text-muted-foreground">Processing… {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")} elapsed — AI analysis can take up to 10 minutes. Please wait without starting another request.</p>}
+    {!busy && progress && <p role="status" className="text-xs text-muted-foreground">{progress}</p>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </div>;
 }

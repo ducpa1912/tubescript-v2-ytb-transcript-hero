@@ -10,9 +10,10 @@ const bases = {
 };
 const catalogs = new Map<string, { expires: number; models: CatalogModel[] }>();
 const cooldowns = new Map<string, number>();
-export const ANALYSIS_ROUTE_TIMEOUT = { read: 65000, watch: 80000 } as const;
-// Includes catalog/model calls, leaving headroom under the 120s generation lease.
-export const ANALYSIS_RUN_BUDGET = 100000;
+// AI calls can run long: wait up to 10 minutes per route before declaring a timeout.
+export const ANALYSIS_ROUTE_TIMEOUT = { read: 600000, watch: 600000 } as const;
+// Includes catalog/model calls, leaving headroom under the 650s generation lease.
+export const ANALYSIS_RUN_BUDGET = 610000;
 export const FREE_READ_MODELS = ["minimax/minimax-m3.1-flash:free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3.5-super-vl:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"];
 export class AnalysisRouteError extends Error {
   constructor(message: string, public terminal = false) { super(message); }
