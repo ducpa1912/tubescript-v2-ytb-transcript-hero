@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Clock3, Search, FileText, Sparkles, X, Copy } from "lucide-react";
+import { Download, Loader2, Clock3, Search, FileText, BookOpen, Eye, X, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { addTimestamps } from "@/lib/captions.functions";
-import { subtitleTime, toSubtitle, type Cue } from "@/lib/captions";
+import { formatTimestamp, toSubtitle, type Cue } from "@/lib/captions";
 import { download, type Row } from "@/lib/export";
 import { AnalysisPanel } from "./analysis-panel";
 
@@ -47,7 +47,8 @@ export function TranscriptViewer({ row, signedIn }: { row: Row & { cues?: Cue[] 
     <Tabs defaultValue="transcript">
       <TabsList className="w-full">
         <TabsTrigger value="transcript" className="flex-1"><FileText />Transcript</TabsTrigger>
-        <TabsTrigger value="analysis" className="flex-1"><Sparkles />AI analysis</TabsTrigger>
+        <TabsTrigger value="read" className="flex-1"><BookOpen />Read<span className="hidden sm:inline"> · Free</span></TabsTrigger>
+        <TabsTrigger value="watch" className="flex-1"><Eye />Watch<span className="hidden sm:inline"> · 10 credits</span></TabsTrigger>
       </TabsList>
 
       <TabsContent value="transcript" className="space-y-3 pt-2">
@@ -68,9 +69,9 @@ export function TranscriptViewer({ row, signedIn }: { row: Row & { cues?: Cue[] 
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <div className="max-h-[60vh] overflow-y-auto rounded-md border">
           {cues.length ? <div className="divide-y">{shown.map((cue, index) => <Button key={`${cue.start}-${index}`} variant="ghost"
-            aria-label={`Seek to ${subtitleTime(cue.start).slice(0, 8)}`}
+            aria-label={`Seek to ${formatTimestamp(cue.start)}`}
             onClick={() => setSeek(cue.start)} className="h-auto w-full items-start justify-start gap-3 rounded-none whitespace-normal px-3 py-2 text-left font-normal">
-            <span className="shrink-0 font-mono text-xs text-primary">{subtitleTime(cue.start).slice(0, 8)}</span>
+            <span className="shrink-0 font-mono text-xs text-primary">{formatTimestamp(cue.start)}</span>
             <span className="text-sm leading-relaxed">{cue.text}</span>
           </Button>)}</div>
             : <div className="space-y-3 p-4 text-sm leading-relaxed">{paragraphs.map((p, i) => <p key={i}>{p}</p>)}</div>}
@@ -78,10 +79,10 @@ export function TranscriptViewer({ row, signedIn }: { row: Row & { cues?: Cue[] 
         </div>
       </TabsContent>
 
-      <TabsContent value="analysis" className="pt-2">
-        {signedIn ? <AnalysisPanel videoId={row.id} onSeek={setSeek} />
-          : <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">Sign in to run AI analysis.</p>}
-      </TabsContent>
+      {(["read", "watch"] as const).map((tier) => <TabsContent key={tier} value={tier} className="pt-2">
+        {signedIn ? <AnalysisPanel videoId={row.id} onSeek={setSeek} tier={tier} />
+          : <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">Sign in to run {tier === "read" ? "Read" : "Watch"} analysis.</p>}
+      </TabsContent>)}
     </Tabs>
   </div>;
 }

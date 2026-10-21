@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { ANALYSIS_COST, ANALYSIS_VERSION, DEFAULT_ANALYSIS_SETTINGS, buildSegments, settingsSchema, type AnalysisTier, type AnalysisSettings } from "./analysis";
+import { ANALYSIS_COST, ANALYSIS_VERSION, DEFAULT_ANALYSIS_SETTINGS, analysisFailureStatus, buildSegments, settingsSchema, type AnalysisTier, type AnalysisSettings } from "./analysis";
 import { normalizeCues } from "./captions";
 import type { Json } from "@/integrations/supabase/types";
 
@@ -82,14 +82,15 @@ async function generate(db: Db, user: string, id: string, analysisTier: Analysis
     const [{ data: text }, { data: timings }, { data: video }] = await Promise.all([
       db.from("video_transcripts").select("transcript").eq("video_id", id).maybeSingle(),
       db.from("video_caption_cues").select("cues").eq("video_id", id).maybeSingle(),
-      db.from("videos").select("title").eq("id", id).maybeSingle(),
+      db.from("videos").select("title,duration_seconds").eq("id", id).maybeSingle(),
     ]);
     if (!text?.transcript) throw new Error("Transcript is missing. No credits spent.");
     const segments = buildSegments(text.transcript, normalizeCues(timings?.cues));
     if (analysisTier === "watch" && segments.some((s) => s.start == null)) throw new Error("Add timestamps before Watch analysis. No credits spent.");
     // Watch runs independently from Read: no tier-1 output is fed in, so it cannot be diluted or anchored.
     const { routeAnalysis } = await import("./ai-router.server");
-    const result = await routeAnalysis({ tier: analysisTier, videoId: id, title: video?.title ?? id, segments, settings }, async (route, outcome, detail, ms) => {
+    const signals = analysisTier === "watch" ? await (await import("./youtube.server")).extractVideoSignals(id) : { heatMoments: [], chapters: [] };
+    const result = await routeAnalysis({ tier: analysisTier, videoId: id, title: video?.title ?? id, segments, settings, durationS: video?.duration_seconds ?? 0, ...signals }, async (route, outcome, detail, ms) => {
       try { await db.from("pipeline_logs").insert({ user_id: user, video_id: id, stage: `analysis_${analysisTier}`, route: `${route.provider}/${route.model}`, outcome, detail, duration_ms: ms }); } catch { /* Logging must not stop delivery. */ }
     });
     const { error: saveError } = await db.from("video_analyses").upsert({ video_id: id, tier: analysisTier, version: ANALYSIS_VERSION, result: asJson(result.result), segments: asJson(segments), provider: result.provider, model: result.model, usage: asJson(result.usage) }, { onConflict: "video_id,tier,version", ignoreDuplicates: true });
@@ -131,9 +132,12 @@ export const processAnalysisJob = createServerFn({ method: "POST" }).middleware(
       return { status: "done" };
     } catch (e) {
       const detail = e instanceof Error ? e.message : "Analysis failed.";
-      const status = job.attempts >= 3 || detail.includes("10 credits") ? "failed" : "pending";
+      const terminal = (e instanceof Error && "terminal" in e && e.terminal === true) || /10 credits|Unlock this transcript|Add timestamps|Transcript is missing/.test(detail);
+      const status = analysisFailureStatus(job.attempts, terminal);
       const wait = 5000 * 2 ** job.attempts + Math.round(Math.random() * 1000);
-      await db.from("analysis_jobs").update({ status, error: detail, lease_until: null, available_at: new Date(Date.now() + wait).toISOString(), updated_at: new Date().toISOString() }).eq("id", job.id);
+      const { error: updateError } = await db.from("analysis_jobs").update({ status, error: detail, lease_until: null, available_at: new Date(Date.now() + wait).toISOString(), updated_at: new Date().toISOString() }).eq("id", job.id);
+      if (updateError) throw new Error("Could not save the analysis failure. Queue recovery will wait for the lease.");
+      try { await db.from("pipeline_logs").insert({ user_id: context.userId, video_id: job.video_id, stage: `analysis_${job.tier}`, route: "job_runner", outcome: status, detail: `Attempt ${job.attempts}/3: ${detail}` }); } catch { /* Diagnostics must not break job state. */ }
       return { status, error: detail };
     }
   });
