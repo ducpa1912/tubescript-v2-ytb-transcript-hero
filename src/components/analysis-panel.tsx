@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { enqueueAnalyses, getAnalyses, getAnalysisSettings, listAnalysisJobs, processAnalysisJob } from "@/lib/analysis.functions";
 import { analysisResultSchema, type AnalysisTier, type Segment } from "@/lib/analysis";
 import { download, formatTimestamp } from "@/lib/export";
+import { watchResultSchema } from "@/lib/watch";
+import { WatchEvidence } from "./watch-evidence";
 
-export function AnalysisQueueControls({ videoIds, onDelivered, tier }: { videoIds: string[]; onDelivered?: () => void; tier?: AnalysisTier | undefined }) {
+export function AnalysisQueueControls({ videoIds, onDelivered, tier, refreshWatch = false }: { videoIds: string[]; onDelivered?: () => void; tier?: AnalysisTier | undefined; refreshWatch?: boolean }) {
   const enqueue = useServerFn(enqueueAnalyses), list = useServerFn(listAnalysisJobs), process = useServerFn(processAnalysisJob), preferences = useServerFn(getAnalysisSettings);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [progress, setProgress] = useState("");
   const stopped = useRef(false), mounted = useRef(true);
@@ -39,14 +41,14 @@ export function AnalysisQueueControls({ videoIds, onDelivered, tier }: { videoId
     setBusy(true); setError(null);
     try {
       const settings = await preferences();
-      for (let i = 0; i < videoIds.length; i += settings.batchSize) await enqueue({ data: { videoIds: videoIds.slice(i, i + settings.batchSize), tier } });
+      for (let i = 0; i < videoIds.length; i += settings.batchSize) await enqueue({ data: { videoIds: videoIds.slice(i, i + settings.batchSize), tier, refresh: tier === "watch" && refreshWatch } });
       await drain();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not queue analysis."); setBusy(false); }
   }
   return <div className="space-y-2">
     <div className="flex flex-wrap items-center gap-2">
       {tier !== "watch" && <Button size="sm" variant="secondary" disabled={busy || !videoIds.length} onClick={() => void start("read")}><BookOpen />Read · Free</Button>}
-      {tier !== "read" && <Button size="sm" variant="outline" disabled={busy || !videoIds.length} onClick={() => void start("watch")}><Eye />Watch · {videoIds.length * 10} credits</Button>}
+      {tier !== "read" && <Button size="sm" variant="outline" disabled={busy || !videoIds.length} onClick={() => void start("watch")}><Eye />{refreshWatch ? "Refresh Watch · Already unlocked" : `Watch · ${videoIds.length * 10} credits`}</Button>}
       {busy ? <Button size="icon" variant="ghost" title="Pause queue" aria-label="Pause analysis queue" onClick={() => { stopped.current = true; }}><Pause /></Button> : <Button size="icon" variant="ghost" title="Resume queue" aria-label="Resume analysis queue" onClick={() => void drain()}><Play /></Button>}
       {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
     </div>
@@ -68,7 +70,10 @@ export function AnalysisPanel({ videoId, onSeek, tier }: { videoId: string; onSe
   useEffect(() => { mounted.current = true; void refresh(); return () => { mounted.current = false; }; }, [videoId]);
   const activeTier = tier ?? selected;
   const analysis = analyses.find((a) => a.tier === activeTier);
-  const parsed = analysisResultSchema.safeParse(analysis?.result);
+  let stored: unknown = analysis?.result;
+  if (typeof stored === "string") { try { stored = JSON.parse(stored); } catch { /* Unstructured legacy output stays readable as text. */ } }
+  const parsed = analysisResultSchema.safeParse(stored);
+  const watch = watchResultSchema.safeParse(stored);
   const result = parsed.success ? parsed.data : null;
   const segments = Array.isArray(analysis?.segments) ? analysis.segments as unknown as Segment[] : [];
   function anchor(id: string) {
@@ -77,12 +82,16 @@ export function AnalysisPanel({ videoId, onSeek, tier }: { videoId: string; onSe
   }
   return <section className="space-y-4 border-t pt-4">
     <h3 className="font-semibold">{tier === "watch" ? "Watch analysis" : tier === "read" ? "Read analysis" : "Video analysis"}</h3>
-    <AnalysisQueueControls videoIds={[videoId]} tier={tier} onDelivered={() => void refresh()} />
+    <AnalysisQueueControls videoIds={[videoId]} tier={tier} refreshWatch={Boolean(analyses.some((a) => a.tier === "watch"))} onDelivered={() => void refresh()} />
     {!tier && <div className="flex gap-2" role="tablist" aria-label="Analysis tiers">
       {(["read", "watch"] as const).map((t) => <Button key={t} role="tab" aria-selected={selected === t} variant={selected === t ? "secondary" : "ghost"} size="sm" onClick={() => setSelected(t)}>{t === "read" ? <BookOpen /> : <Eye />}{t === "read" ? "Read" : "Watch"}{analyses.some((a) => a.tier === t) ? " ✓" : ""}</Button>)}
     </div>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    {result ? <div className="space-y-4 text-sm">
+    {activeTier === "watch" && analysis?.watch_format === 0 && <p className="border-l-2 border-warning pl-3 text-sm text-muted-foreground">Earlier Watch output. A successful refresh replaces it with synchronized audiovisual moments.</p>}
+    {activeTier === "watch" && watch.success ? <>
+      <div className="flex justify-end"><Button size="sm" variant="ghost" onClick={() => download(`${videoId}-watch-analysis.json`, JSON.stringify(analysis, null, 2), "application/json")}><Download />JSON</Button></div>
+      <WatchEvidence result={watch.data} onSeek={onSeek} />
+    </> : result ? <div className="space-y-4 text-sm">
       <div className="flex justify-end"><Button size="sm" variant="ghost" onClick={() => download(`${videoId}-${activeTier}-analysis.json`, JSON.stringify({ ...analysis, result }, null, 2), "application/json")}><Download />JSON</Button></div>
       <div><h4 className="font-medium">Central thesis</h4><p className="mt-1 leading-relaxed">{result.thesis}</p></div>
       <div><h4 className="font-medium">Overview</h4><p className="mt-1 leading-relaxed">{result.summary}</p></div>
@@ -97,6 +106,6 @@ export function AnalysisPanel({ videoId, onSeek, tier }: { videoId: string; onSe
       {result.observations.length > 0 && <div><h4 className="font-medium">Seen & heard</h4>{result.observations.map((o, i) => <div className="mt-3 space-y-1 border-b pb-3" key={i}>{anchor(o.segmentId)}{o.seen || o.heard ? <><p><strong>Seen:</strong> {o.seen || "Not reported"}</p><p><strong>Heard:</strong> {o.heard || "Not reported"}</p></> : <p className="text-muted-foreground">No observation reported for this segment.</p>}{o.mismatch && <aside className="mt-2 rounded-md border-l-4 border-warning bg-warning/10 p-3"><strong className="text-warning">Visual-verbal tension</strong><p className="mt-1">{o.mismatch}</p></aside>}</div>)}</div>}
       {activeTier === "watch" && result.onScreenText.length > 0 && <div><h4 className="font-medium">On-screen text & graphics</h4><ul className="mt-1 space-y-2">{result.onScreenText.map((t, i) => <li key={i}>{t.segmentId && anchor(t.segmentId)} {t.text}</li>)}</ul></div>}
       {activeTier === "watch" && result.heatMoments.length > 0 && <div><h4 className="font-medium">Most replayed moments</h4><ul className="mt-2 space-y-1">{[...result.heatMoments].sort((a, b) => b.intensity - a.intensity).slice(0, 3).map((h) => <li key={h.startMs}><Button size="sm" variant="ghost" className="font-mono text-xs text-primary" onClick={() => onSeek(h.startMs / 1000)}>{formatTimestamp(h.startMs / 1000)}</Button>Replay intensity {Math.round(h.intensity * 100)}%</li>)}</ul></div>}
-    </div> : <p className="text-sm text-muted-foreground">{activeTier === "read" ? "No Read analysis yet." : "No Watch analysis unlocked."}</p>}
+    </div> : typeof stored === "string" ? <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{stored}</p> : <p className="text-sm text-muted-foreground">{activeTier === "read" ? "No Read analysis yet." : "No Watch analysis unlocked."}</p>}
   </section>;
 }
