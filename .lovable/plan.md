@@ -2,9 +2,11 @@
 
 ## Built
 - Two-tier video analysis: free Read, 10 wallet credits per delivered Watch unlock, versioned shared cache and repeat-safe atomic delivery.
-- Model settings: MiniMax/DeepSeek free Read preference, Gemini 3.1 Flash Lite Watch default, optional Gemini 3.5 rollup, OpenCode Go/Zen/OpenRouter provider choice and 5–10-video batches.
+- Internal routing: catalog-verified MiniMax/Gemma/NVIDIA free Read cascade; OpenCode Zen Gemini 3.5 Watch first, configured OpenRouter fallback, 5–10-video batches. No end-user model settings.
 - Persisted leased analysis queue, three concurrent independent requests per micro-batch, bounded retries/backoff, provider logs, analysis inspector and JSON export.
-- Real OpenRouter MiniMax free response and actual video Read cache/unlock verified; 32 focused regression tests pass. Watch requires real cached timestamps and always completes Read first.
+- Prior real MiniMax Read/cache/unlock verified. Current regression suite: 46 tests passed, build OK. Watch requires timed captions, runs independently and never receives Read output.
+- Read/Watch timeouts 65s/80s within one 100s provider budget; per-model timeout cooldowns, four free candidates and bounded three-attempt jobs with partial failure diagnostics.
+- Hundredth-second timestamps, visually separate caveats, independent Transcript/Read/Watch tabs and expanded Watch hook/tone/mood/visual/anchored-text output. Best-effort replay heat/chapters are code-supplied; caption facts are not visual cuts.
 - Google sign-in; public single-video extraction; signed-in channel crawls; 10 free transcripts/day.
 - Saved projects, resume, and check for new videos.
 - Shared metadata and deduplicated transcripts; per-user unlocks; latest metadata with archived history.
