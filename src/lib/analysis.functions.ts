@@ -46,9 +46,13 @@ export const enqueueAnalyses = createServerFn({ method: "POST" }).middleware([re
     ]);
     if (accessError || access?.length !== ids.length) throw new Error("Unlock every selected transcript before analysis.");
     const settings = settingsSchema.parse(preferences?.settings ?? DEFAULT_ANALYSIS_SETTINGS);
-    const { availableRoutes } = await import("./ai-router.server");
-    if (!(await availableRoutes(settings, data.tier)).length) throw new Error("No eligible model is available. Check model settings.");
     const { supabaseAdmin: db } = await import("@/integrations/supabase/client.server");
+    const { data: caches, error: cacheError } = await db.from("video_analyses").select("video_id").in("video_id", ids).eq("tier", data.tier).eq("version", ANALYSIS_VERSION);
+    if (cacheError) throw new Error("Could not read analysis cache.");
+    if (caches?.length !== ids.length) {
+      const { availableRoutes } = await import("./ai-router.server");
+      if (!(await availableRoutes(settings, data.tier)).length) throw new Error("No eligible model is available. Check model settings.");
+    }
     const { data: old, error: oldError } = await context.supabase.from("analysis_jobs").select("id,video_id,status").eq("user_id", context.userId).eq("tier", data.tier).eq("version", ANALYSIS_VERSION).in("video_id", ids);
     if (oldError) throw new Error("Could not load existing jobs.");
     const fresh = ids.filter((id) => !old?.some((j) => j.video_id === id));
@@ -79,6 +83,7 @@ async function generate(db: Db, user: string, id: string, analysisTier: Analysis
     ]);
     if (!text?.transcript) throw new Error("Transcript is missing. No credits spent.");
     const segments = buildSegments(text.transcript, normalizeCues(timings?.cues));
+    if (analysisTier === "watch" && segments.some((s) => s.start == null)) throw new Error("Add timestamps before Watch analysis. No credits spent.");
     let read;
     if (analysisTier === "watch") {
       const { data: previous } = await db.from("video_analyses").select("result").eq("video_id", id).eq("tier", "read").eq("version", ANALYSIS_VERSION).maybeSingle();
