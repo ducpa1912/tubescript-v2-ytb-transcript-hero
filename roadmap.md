@@ -11,6 +11,7 @@
 - [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
 
 ## Tasks
+- [ ] Build latest-only richer Watch moments, expandable categories, atomic refresh replacement and separate audiovisual presentation; preserve transcript data and existing unlocks.
 - [x] Apply five analysis reliability fixes: verified free cascade, timeout cooldowns/budget, null safety, bounded coverage and terminal retry handling.
 - [x] Add hundredth-second anchors, distinct caveat callouts and independent expanded Watch schema/prompt with code-derived facts/replay heatmap.
 - [x] Run regression tests: 46 passed; preview build OK; all four free IDs verified in live catalog.
