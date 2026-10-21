@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCues, parseCaptionXml, refreshCharge, toSubtitle } from "../lib/captions";
+import { formatTimestamp, normalizeCues, parseCaptionXml, refreshCharge, toSubtitle } from "../lib/captions";
 import { collectionIdPattern, collectionUrl, isKnownPage } from "../lib/collections";
 
 describe("caption parsing and formats", () => {
+  it("formats anchors in hundredths with correct minute/hour carry", () => {
+    expect(formatTimestamp(0)).toBe("0:00.00"); expect(formatTimestamp(29.92)).toBe("0:29.92");
+    expect(formatTimestamp(120.35999999999999943)).toBe("2:00.36");
+    expect(formatTimestamp(3600.05)).toBe("1:00:00.05"); expect(formatTimestamp(59.999)).toBe("1:00.00");
+    expect(formatTimestamp(NaN)).toBe("—"); expect(formatTimestamp(null)).toBe("—");
+  });
   it("preserves legacy full text and second-based timing", () => {
     expect(parseCaptionXml('<text start="12.4" dur="3.1">Hello &amp; world</text>')).toEqual({ transcript: "Hello & world", cues: [{ start: 12.4, dur: 3.1, text: "Hello & world" }] });
   });

@@ -10,11 +10,11 @@
 <!-- LOVABLE:END -->
 
 ## Tubescript architecture
-- YouTube extraction lives in `src/lib/youtube.server.ts`: stage 1 discovery uses the official Data API (`UULF` long-form uploads playlist) only when `YOUTUBE_API_KEY` is set, else keyless Videos-tab continuations; stage 2 captions are always keyless innertube — the Data API cannot download third-party captions.
+- YouTube discovery uses Data API UULF when configured, else keyless Videos-tab continuations; captions always use keyless innertube.
 - Crawls are a DB-backed queue (`videos.status = 'pending'`) drained by the browser calling `processBatch` repeatedly — each call is its own Worker invocation, staying within the 6-outbound-connection cap and time limits.
 - `videos`/`channels` hold public metadata only; transcript text lives once per video in `video_transcripts`, readable only via a `user_video_unlocks` row — so a video is extracted once and shared, while access stays per-user. All writes go through server functions using the admin client.
 - Previous metadata is archived to `video_metadata_history` by a DB trigger on change — the UI shows only the latest values.
-- Discovery inserts new videos with duplicate-ignore and updates existing rows with metadata-only patches; never mix partial existing rows into insertion batches, because omitted extraction state can become null or reset completed work.
+- Discovery duplicate-ignores new inserts and metadata-only patches existing rows; never insert partial existing rows or reset extraction state.
 - Reasoning logs for each workstream live in `/logs/*.md`.
 
 ## V2 auth and monetization
@@ -42,4 +42,7 @@
 - Model/provider settings are internal-only: no end-user settings UI or route; per-user `analysis_settings` rows (or defaults) govern routing, changed via the database, not the app UI.
 
 - Leased per-user jobs drain in browser batches with three concurrent independent invocations; global generation leases prevent overlapping model calls.
-- Catalog-verified free Read routes never fall back to paid IDs; Watch uses actual video input with provider-specific APIs, not guessed visuals.
+- Read only uses catalog-verified zero-cost IDs. Watch requires actual provider-specific video input.
+- Provider calls share a 100s run budget below the generation lease; cooldowns key provider:model, and terminal denials stop retries.
+- Normalize legacy analysis shapes on read without mutation/recharging; only validated output unlocks, partial failure diagnostics stay owner-only.
+- Caption facts measure speech, not cuts/B-roll; public replay heat is not retention. Watch never receives Read output.
