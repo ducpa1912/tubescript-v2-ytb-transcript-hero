@@ -61,7 +61,7 @@ function Index() {
   const account = useQuery({ queryKey: ["account"], enabled: !!user, queryFn: () => getAccount() });
 
   const runRef = useRef(0);
-  const runRefLatest = useRef<(refresh?: boolean, override?: string) => Promise<void>>(async () => {});
+  const runRefLatest = useRef<(refresh?: boolean, override?: string, retryMissing?: boolean) => Promise<void>>(async () => {});
   const lastSync = useRef<string>("1970-01-01");
 
   const mergeRows = (list: DbRow[]) =>
@@ -110,14 +110,14 @@ function Index() {
     }
   }, []);
 
-  const run = async (refresh = false, override?: string) => {
+  const run = async (refresh = false, override?: string, retryMissing = false) => {
     const value = (override ?? input).trim();
     if (!value) return;
     const runId = ++runRef.current;
     setError(null); setNotice(null); setAuthNeeded(false); setQuotaReached(false); setPhase("discovering"); if (!refresh) { setRows(new Map()); setChannel(null); }
     lastSync.current = "1970-01-01";
     try {
-      const res = await startScan({ data: { input: value, refresh } });
+      const res = await startScan({ data: { input: value, refresh, retryMissing } });
       if ("error" in res) {
         if ("authRequired" in res && res.authRequired) { setAuthNeeded(true); setPhase("idle"); return; }
         throw new Error(res.error);
@@ -225,10 +225,12 @@ function Index() {
 
       {phase !== "idle" && (
         <Progress phase={phase} resolved={resolved} total={total} notice={notice} channel={channel}
-          onRefresh={() => channel ? run(true, collectionUrl(channel.id)) : run(true)} />
+          onRefresh={() => channel ? run(true, collectionUrl(channel.id)) : run(true)}
+          missing={list.filter((r) => r.status === "no_captions").length}
+          onRetryMissing={() => channel && run(true, collectionUrl(channel.id), true)} />
       )}
 
-      {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={!!channel} signedIn={!!user} onUnlocked={() => channel ? syncChannel(channel.id, true) : Promise.resolve()} />}
+      {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={!!channel} signedIn={!!user} onUnlocked={() => channel ? syncChannel(channel.id, true) : Promise.resolve()} onRetried={(r) => mergeRows([r])} />}
     </main>
   );
 }
@@ -248,8 +250,8 @@ function UpgradeCard({ locked }: { locked: number }) {
   );
 }
 
-function Progress({ phase, resolved, total, notice, channel, onRefresh }: {
-  phase: string; resolved: number; total: number; notice: string | null; channel: Channel | null; onRefresh: () => void;
+function Progress({ phase, resolved, total, notice, channel, onRefresh, missing, onRetryMissing }: {
+  phase: string; resolved: number; total: number; notice: string | null; channel: Channel | null; onRefresh: () => void; missing: number; onRetryMissing: () => void;
 }) {
   const pct = total ? Math.round((resolved / total) * 100) : 0;
   return (
@@ -270,7 +272,10 @@ function Progress({ phase, resolved, total, notice, channel, onRefresh }: {
       <div className="mt-2 flex min-h-5 items-center justify-between font-mono text-xs text-muted-foreground">
         <span>{notice}</span>
         {phase === "done" && channel && (
-          <Button variant="ghost" size="sm" onClick={onRefresh}><RotateCw className="size-3" /> Check for new videos</Button>
+          <span className="flex gap-1">
+            {missing > 0 && <Button variant="ghost" size="sm" onClick={onRetryMissing}><RotateCw className="size-3" /> Retry {missing} without captions</Button>}
+            <Button variant="ghost" size="sm" onClick={onRefresh}><RotateCw className="size-3" /> Check for new videos</Button>
+          </span>
         )}
       </div>
     </section>
@@ -285,7 +290,7 @@ const STATUS_STYLE: Record<string, string> = {
   pending: "text-muted-foreground",
 };
 
-function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlocked }: { rows: DbRow[]; heading: string; ready: boolean; locked?: boolean; signedIn: boolean; onUnlocked: () => Promise<void> }) {
+function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlocked, onRetried }: { rows: DbRow[]; heading: string; ready: boolean; locked?: boolean; signedIn: boolean; onUnlocked: () => Promise<void>; onRetried: (row: DbRow) => void }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "position", dir: 1 });
   const [open, setOpen] = useState<DbRow | null>(null);
@@ -434,7 +439,7 @@ function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlock
                   <a className="text-primary underline" href={`https://www.youtube.com/watch?v=${open.id}`} target="_blank" rel="noreferrer">Watch</a>
                 </SheetDescription>
               </SheetHeader>
-              <TranscriptViewer key={open.id} row={open} signedIn={signedIn} />
+              <TranscriptViewer key={open.id} row={open} signedIn={signedIn} onRetried={(r) => { const next = { ...open, ...r } as DbRow; setOpen(next); onRetried(next); }} />
             </>
           )}
         </SheetContent>
