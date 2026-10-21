@@ -17,14 +17,19 @@ export function AnalysisQueueControls({ videoIds, onDelivered }: { videoIds: str
   async function drain() {
     setBusy(true); setError(null); stopped.current = false;
     try {
+      const settings = await preferences();
       while (!stopped.current && mounted.current) {
         const jobs = await list();
         const active = jobs.filter((j) => j.status === "pending" || j.status === "running");
         setProgress(`${jobs.filter((j) => j.status === "done").length} done · ${active.length} queued · ${jobs.filter((j) => j.status === "failed").length} failed`);
         if (!active.length) break;
-        const ready = active.filter((j) => new Date(j.available_at).getTime() <= Date.now() && (j.status === "pending" || !j.lease_until || new Date(j.lease_until).getTime() < Date.now())).slice(0, 3);
+        const ready = active.filter((j) => new Date(j.available_at).getTime() <= Date.now() && (j.status === "pending" || !j.lease_until || new Date(j.lease_until).getTime() < Date.now())).slice(0, settings.batchSize);
         if (!ready.length) { await new Promise((r) => setTimeout(r, 1500)); continue; }
-        await Promise.allSettled(ready.map((j) => process({ data: { jobId: j.id } })));
+        for (let i = 0; i < ready.length && !stopped.current; i += 3) {
+          const outcomes = await Promise.allSettled(ready.slice(i, i + 3).map((j) => process({ data: { jobId: j.id } })));
+          const rejected = outcomes.find((r) => r.status === "rejected");
+          if (rejected?.status === "rejected") throw rejected.reason;
+        }
         await query.invalidateQueries({ queryKey: ["account"] });
         onDelivered?.();
       }

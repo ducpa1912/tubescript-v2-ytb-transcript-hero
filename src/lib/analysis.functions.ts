@@ -33,9 +33,12 @@ export const getAnalyses = createServerFn({ method: "GET" }).middleware([require
     return analyses ?? [];
   });
 export const listAnalysisJobs = createServerFn({ method: "GET" }).middleware([requireSupabaseAuth]).handler(async ({ context }) => {
-  const { data, error } = await context.supabase.from("analysis_jobs").select("*").eq("user_id", context.userId).order("created_at", { ascending: false }).limit(200);
-  if (error) throw new Error("Could not load analysis queue.");
-  return data ?? [];
+    const [active, recent] = await Promise.all([
+      context.supabase.from("analysis_jobs").select("*").eq("user_id", context.userId).in("status", ["pending", "running"]).order("created_at").limit(200),
+      context.supabase.from("analysis_jobs").select("*").eq("user_id", context.userId).in("status", ["done", "failed"]).order("updated_at", { ascending: false }).limit(100),
+    ]);
+  if (active.error || recent.error) throw new Error("Could not load analysis queue.");
+  return [...(active.data ?? []), ...(recent.data ?? [])];
 });
 export const enqueueAnalyses = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ videoIds: z.array(videoId).min(1).max(10), tier }).parse(input)).handler(async ({ data, context }) => {
@@ -82,13 +85,15 @@ async function generate(db: Db, user: string, id: string, analysisTier: Analysis
       db.from("videos").select("title").eq("id", id).maybeSingle(),
     ]);
     if (!text?.transcript) throw new Error("Transcript is missing. No credits spent.");
-    const segments = buildSegments(text.transcript, normalizeCues(timings?.cues));
+    let segments = buildSegments(text.transcript, normalizeCues(timings?.cues));
     if (analysisTier === "watch" && segments.some((s) => s.start == null)) throw new Error("Add timestamps before Watch analysis. No credits spent.");
     let read;
     if (analysisTier === "watch") {
-      const { data: previous } = await db.from("video_analyses").select("result").eq("video_id", id).eq("tier", "read").eq("version", ANALYSIS_VERSION).maybeSingle();
+      const { data: previous } = await db.from("video_analyses").select("result,segments").eq("video_id", id).eq("tier", "read").eq("version", ANALYSIS_VERSION).maybeSingle();
       const { analysisResultSchema } = await import("./analysis");
       read = analysisResultSchema.parse(previous?.result);
+      if (Array.isArray(previous?.segments)) segments = previous.segments as unknown as typeof segments;
+      if (segments.some((s) => s.start == null)) throw new Error("The cached Read analysis is untimed; Watch requires a future timed analysis version. No credits spent.");
     }
     const { routeAnalysis } = await import("./ai-router.server");
     const result = await routeAnalysis({ tier: analysisTier, videoId: id, title: video?.title ?? id, segments, settings, read }, async (route, outcome, detail, ms) => {
