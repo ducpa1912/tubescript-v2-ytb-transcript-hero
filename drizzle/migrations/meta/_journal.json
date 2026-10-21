@@ -36,6 +36,13 @@
       "when": 1792548341526,
       "tag": "0004_two_tier_video_analysis",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792548772974,
+      "tag": "0005_recover_expired_analysis_jobs",
+      "breakpoints": true
     }
   ]
 }
