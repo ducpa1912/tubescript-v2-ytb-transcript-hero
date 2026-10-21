@@ -46,6 +46,7 @@ export type Database = {
           error: string | null
           id: string
           lease_until: string | null
+          refresh_requested_at: string | null
           settings: Json
           status: string
           tier: string
@@ -61,6 +62,7 @@ export type Database = {
           error?: string | null
           id?: string
           lease_until?: string | null
+          refresh_requested_at?: string | null
           settings: Json
           status?: string
           tier: string
@@ -76,6 +78,7 @@ export type Database = {
           error?: string | null
           id?: string
           lease_until?: string | null
+          refresh_requested_at?: string | null
           settings?: Json
           status?: string
           tier?: string
@@ -479,6 +482,7 @@ export type Database = {
           usage: Json | null
           version: number
           video_id: string
+          watch_format: number
         }
         Insert: {
           created_at?: string
@@ -490,6 +494,7 @@ export type Database = {
           usage?: Json | null
           version?: number
           video_id: string
+          watch_format?: number
         }
         Update: {
           created_at?: string
@@ -501,6 +506,7 @@ export type Database = {
           usage?: Json | null
           version?: number
           video_id?: string
+          watch_format?: number
         }
         Relationships: [
           {
@@ -685,6 +691,78 @@ export type Database = {
         }
         Relationships: []
       }
+      watch_categories: {
+        Row: {
+          created_at: string
+          description: string
+          label: string
+          slug: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          label: string
+          slug: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          label?: string
+          slug?: string
+        }
+        Relationships: []
+      }
+      watch_moments: {
+        Row: {
+          category_slug: string | null
+          end_seconds: number
+          ordinal: number
+          payload: Json
+          segment_id: string
+          start_seconds: number
+          tier: string
+          version: number
+          video_id: string
+        }
+        Insert: {
+          category_slug?: string | null
+          end_seconds: number
+          ordinal: number
+          payload: Json
+          segment_id: string
+          start_seconds: number
+          tier?: string
+          version?: number
+          video_id: string
+        }
+        Update: {
+          category_slug?: string | null
+          end_seconds?: number
+          ordinal?: number
+          payload?: Json
+          segment_id?: string
+          start_seconds?: number
+          tier?: string
+          version?: number
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "watch_moments_category_slug_fkey"
+            columns: ["category_slug"]
+            isOneToOne: false
+            referencedRelation: "watch_categories"
+            referencedColumns: ["slug"]
+          },
+          {
+            foreignKeyName: "watch_moments_video_id_tier_version_fkey"
+            columns: ["video_id", "tier", "version"]
+            isOneToOne: false
+            referencedRelation: "video_analyses"
+            referencedColumns: ["video_id", "tier", "version"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -708,6 +786,7 @@ export type Database = {
           error: string | null
           id: string
           lease_until: string | null
+          refresh_requested_at: string | null
           settings: Json
           status: string
           tier: string
@@ -743,6 +822,18 @@ export type Database = {
       fulfill_stripe_credits: {
         Args: { _reference: string; _type: string; _user: string }
         Returns: boolean
+      }
+      replace_watch_analysis: {
+        Args: {
+          _model: string
+          _provider: string
+          _result: Json
+          _segments: Json
+          _token: string
+          _usage: Json
+          _video: string
+        }
+        Returns: undefined
       }
       user_channel_remaining: {
         Args: { _channel: string; _user: string }
