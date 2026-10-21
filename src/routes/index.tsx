@@ -170,7 +170,7 @@ function Index() {
         <div className="flex justify-end">
           {user ? (
             <span className="flex gap-4">
-              <Link to="/settings" className="font-mono text-xs text-muted-foreground hover:text-foreground">Settings</Link>
+
               <Link to="/analysis" className="font-mono text-xs text-muted-foreground hover:text-foreground">Analysis</Link>
               <Link to="/logs" className="font-mono text-xs text-muted-foreground hover:text-foreground">Logs</Link>
               <Link to="/billing" className="font-mono text-xs text-muted-foreground hover:text-foreground">Credits</Link>

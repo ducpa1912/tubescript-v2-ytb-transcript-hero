@@ -13,7 +13,7 @@ export const Route = createFileRoute("/_authenticated/analysis")({
 function AnalysisPage() {
   const jobs = useSuspenseQuery(jobsQuery), [open, setOpen] = useState<string | null>(null), [seek, setSeek] = useState<number | null>(null);
   return <main className="mx-auto min-h-screen max-w-4xl px-4 py-10">
-    <div className="flex justify-between"><Link to="/" className="text-sm text-muted-foreground">← Tubescript</Link><Link to="/settings" className="text-sm text-primary underline">Model settings</Link></div>
+    <div className="flex justify-between"><Link to="/" className="text-sm text-muted-foreground">← Tubescript</Link></div>
     <h1 className="mt-3 text-2xl font-semibold">Analysis queue</h1>
     <div className="mt-5"><AnalysisQueueControls videoIds={[]} onDelivered={() => void jobs.refetch()} /></div>
     <div className="mt-6 divide-y border-y">{jobs.data.length ? jobs.data.map((j) => <div className="flex flex-wrap items-center justify-between gap-3 py-3" key={j.id}><div className="min-w-0 flex-1"><p className="font-mono text-sm">{j.video_id} · {j.tier}</p><p className="mt-1 text-xs text-muted-foreground">{j.status} · attempt {j.attempts}/3</p>{j.error && <p className="mt-1 break-words text-xs text-destructive">{j.error}</p>}</div><Button size="sm" variant="outline" onClick={() => { setOpen(j.video_id); setSeek(null); }}>Open analysis</Button></div>) : <p className="py-6 text-sm text-muted-foreground">No analyses queued yet.</p>}</div>
