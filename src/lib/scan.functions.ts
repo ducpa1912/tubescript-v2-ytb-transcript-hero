@@ -76,7 +76,7 @@ async function unlock(db: Db, userId: string, ids: string[], source: string) {
 
 /** Resolve input, discover videos and register them. Metadata always refreshes to the latest values. */
 export const startScan = createServerFn({ method: "POST" })
-  .inputValidator((d) => z.object({ input: z.string().min(1).max(500), refresh: z.boolean().optional() }).parse(d))
+  .inputValidator((d) => z.object({ input: z.string().min(1).max(500), refresh: z.boolean().optional(), retryMissing: z.boolean().optional() }).parse(d))
   .handler(async ({ data }) => {
     const yt = await import("./youtube.server");
     const db = await admin();
@@ -209,6 +209,17 @@ export const startScan = createServerFn({ method: "POST" })
     await requeueBlocked(db, channel.channelId);
     if (data.refresh) {
       await db.from("videos").update({ status: "pending", attempts: 0 }).eq("channel_id", channel.channelId).eq("status", "failed");
+    }
+    if (data.retryMissing) {
+      // Re-try every "no captions" video in this project; existing transcripts are never touched.
+      const ids = parsed.kind === "playlist"
+        ? ((await db.from("collection_videos").select("video_id").eq("collection_id", channel.channelId)).data ?? []).map((x) => x.video_id)
+        : null;
+      if (ids) {
+        for (let i = 0; i < ids.length; i += 200) await db.from("videos").update({ status: "pending", attempts: 0, status_detail: null }).in("id", ids.slice(i, i + 200)).eq("status", "no_captions");
+      } else {
+        await db.from("videos").update({ status: "pending", attempts: 0, status_detail: null }).eq("channel_id", channel.channelId).eq("status", "no_captions");
+      }
     }
     return { kind: "channel" as const, channelId: channel.channelId, cached: !!existing.data, newVideos: fresh };
   });

@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Clock3, Search, FileText, BookOpen, Eye, X, Copy } from "lucide-react";
+import { Download, Loader2, Clock3, Search, FileText, BookOpen, Eye, X, Copy, RotateCw } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { startScan } from "@/lib/scan.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,7 +12,23 @@ import { formatTimestamp, toSubtitle, type Cue } from "@/lib/captions";
 import { download, type Row } from "@/lib/export";
 import { AnalysisPanel } from "./analysis-panel";
 
-export function TranscriptViewer({ row, signedIn }: { row: Row & { cues?: Cue[] }; signedIn: boolean }) {
+export function TranscriptViewer({ row, signedIn, onRetried }: { row: Row & { cues?: Cue[] }; signedIn: boolean; onRetried?: (row: Partial<Row> & { cues?: Cue[] }) => void }) {
+  const [retrying, setRetrying] = useState(false);
+  const [retryMsg, setRetryMsg] = useState<string | null>(null);
+  const scan = useServerFn(startScan);
+  async function retry() {
+    setRetrying(true); setRetryMsg(null);
+    try {
+      const res = await scan({ data: { input: `https://www.youtube.com/watch?v=${row.id}` } });
+      if ("error" in res) throw new Error(res.error);
+      const { data } = await supabase.from("videos").select("id,title,publish_date,views,duration_seconds,status,status_detail,caption_lang,word_count").eq("id", row.id).maybeSingle();
+      const transcript = res.kind === "video" ? res.transcript : null;
+      if (!transcript) setRetryMsg("Still no English captions found. Try again later.");
+      else setCues(res.kind === "video" ? res.cues : []);
+      onRetried?.({ ...(data ?? {}), transcript, cues: res.kind === "video" ? res.cues : [] } as Partial<Row> & { cues?: Cue[] });
+    } catch (e) { setRetryMsg((e as Error).message); }
+    finally { setRetrying(false); }
+  }
   const [cues, setCues] = useState(row.cues ?? []);
   const [seek, setSeek] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
@@ -39,7 +57,13 @@ export function TranscriptViewer({ row, signedIn }: { row: Row & { cues?: Cue[] 
   </div>;
 
   if (!row.transcript) return <div className="px-4 pb-6">
-    <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">{row.status_detail ?? "No captions available"}</p>
+    <div className="space-y-3 rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+      <p>{row.status_detail ?? "No captions available"}</p>
+      <Button size="sm" variant="outline" onClick={() => void retry()} disabled={retrying}>
+        {retrying ? <Loader2 className="animate-spin" /> : <RotateCw />}Retry captions
+      </Button>
+      {retryMsg && <p role="status" className="text-xs">{retryMsg}</p>}
+    </div>
   </div>;
 
   return <div className="space-y-3 px-4 pb-6">
