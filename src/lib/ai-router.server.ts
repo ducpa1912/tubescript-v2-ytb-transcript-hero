@@ -58,7 +58,7 @@ export async function routeAnalysis(input: { tier: AnalysisTier; videoId: string
   const errors: string[] = [];
   // Give each provider one attempt before spending the bounded fallback budget on a second model.
   const first = routes.filter((r, i) => routes.findIndex((x) => x.provider === r.provider) === i);
-  const ordered = [...first, ...routes.filter((r) => !first.includes(r))];
+  const ordered = input.tier === "watch" ? routes : [...first, ...routes.filter((r) => !first.includes(r))];
   for (const route of ordered.slice(0, 3)) {
     const routeKey = `${route.provider}:${route.model}`;
     if ((cooldowns.get(routeKey) ?? 0) > Date.now()) continue;
