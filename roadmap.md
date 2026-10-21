@@ -11,9 +11,10 @@
 - [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
 
 ## Tasks
-- [ ] Apply five analysis reliability fixes: verified free cascade, timeout cooldowns/budget, null safety, bounded coverage and terminal retry handling.
-- [ ] Add hundredth-second anchors, distinct caveat callouts and independent expanded Watch schema/prompt with code-derived facts/replay heatmap.
-- [ ] Run regression tests and verify the updated signed-in analysis view.
+- [x] Apply five analysis reliability fixes: verified free cascade, timeout cooldowns/budget, null safety, bounded coverage and terminal retry handling.
+- [x] Add hundredth-second anchors, distinct caveat callouts and independent expanded Watch schema/prompt with code-derived facts/replay heatmap.
+- [x] Run regression tests: 46 passed; preview build OK; all four free IDs verified in live catalog.
+- [ ] Verify updated signed-in analysis flow: preview stalls on client dependency requests; live Read helper cannot access the existing test transcript with the minted session.
 - [x] Build two-tier analysis: free Read, 10-credit Watch, fixed caption segments, shared cache, atomic unlocks.
 - [x] Build model settings, OpenCode/OpenRouter fallback routing, resumable batch queue and analysis viewer.
 - [x] Verify analysis pricing and routing: 32 focused tests; real MiniMax OpenRouter Read response reports $0 cost; persisted real-video Read unlock and repeat unlock charged 0.

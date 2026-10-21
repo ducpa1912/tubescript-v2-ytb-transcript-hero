@@ -51,8 +51,7 @@ export async function availableRoutes(settings: AnalysisSettings, tier: Analysis
       }
     }
   }
-  // Try the selected Watch model on every provider before an optional upgrade.
-  if (tier === "watch") routes.sort((a, b) => Number(a.model.includes("3.5") && !settings.watchModel.includes("3.5")) - Number(b.model.includes("3.5") && !settings.watchModel.includes("3.5")));
+  // Preserve provider priority: OpenCode Zen first, then configured OpenRouter fallback.
   return routes;
 }
 export type AnalysisInput = { tier: AnalysisTier; videoId: string; title: string; segments: Segment[]; settings: AnalysisSettings; durationS?: number; heatMoments?: HeatMoment[]; chapters?: { startS: number; title: string }[] };
