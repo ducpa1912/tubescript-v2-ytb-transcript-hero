@@ -22,6 +22,19 @@ export class BotCheckError extends Error {
   }
 }
 
+const BLOCK_STATUSES = new Set(["LOGIN_REQUIRED", "AGE_CHECK_REQUIRED", "CONTENT_CHECK_REQUIRED"]);
+const BLOCK_MESSAGE = /not a bot|sign in|log ?in|confirm your age|age[- ]restricted|unusual traffic|captcha/i;
+
+/** Explicit status/message for a YouTube access wall (login, bot check, age gate), or null. */
+export function accessBlock(responses: any[]): string | null {
+  for (const p of responses) {
+    const status = String(p?.playabilityStatus?.status ?? "");
+    const reason = String(p?.playabilityStatus?.reason ?? p?.playabilityStatus?.messages?.join(" ") ?? "");
+    if (BLOCK_STATUSES.has(status) || BLOCK_MESSAGE.test(reason)) return `${status || "BLOCKED"}${reason ? `: ${reason}` : ""}`;
+  }
+  return null;
+}
+
 /** "1:02:03" / "12:34" -> seconds. */
 export function parseDuration(s: string | null | undefined): number | null {
   const m = (s ?? "").trim().match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
@@ -357,16 +370,18 @@ async function extractDirect(videoId: string, knownTitle?: string | null): Promi
     transcript: null,
     statusDetail: null,
   };
+  const blocked = accessBlock([android, web]);
   if (!vd.videoId && !mf.title) {
     const reason = android?.playabilityStatus?.reason ?? web?.playabilityStatus?.reason ?? "Video unavailable";
-    if (/not a bot|sign in to confirm/i.test(reason) || (!android && !web)) throw new BotCheckError(reason, base);
+    if (blocked || (!android && !web)) throw new BotCheckError(blocked ?? reason, base);
     return { ...base, status: "unavailable", statusDetail: reason };
   }
   const tracks: any[] = android?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
   if (!tracks.length) {
+    // A login/bot wall hides caption tracks; it is not proof that captions don't exist.
+    if (blocked) throw new BotCheckError(blocked, base);
     const s = android?.playabilityStatus?.status;
     const reason = android?.playabilityStatus?.reason ?? "";
-    if (/not a bot|sign in to confirm/i.test(reason)) throw new BotCheckError(reason, base);
     return { ...base, statusDetail: s && s !== "OK" ? reason || s : "No captions available" };
   }
   // English only: creator-uploaded English first, then auto-generated English. Other languages are ignored.
