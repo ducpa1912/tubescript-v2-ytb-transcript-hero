@@ -14,11 +14,14 @@ describe("latest Watch ingestion", () => {
     expect(shotCategorySchema.parse(moment.shot_type).slug).toBe("process-diagram");
     expect(() => shotCategorySchema.parse({ slug: "other", label: "Other" })).toThrow();
   });
-  it("rejects missing, duplicate and out-of-interval moments", () => {
-    const base = { summary: "Summary" };
-    expect(() => validateWatch({ ...base, moments: [moment] }, [...segments, { id: "s02", start: 140, end: 150, text: "Next" }])).toThrow("1/2");
-    expect(() => validateWatch({ ...base, moments: [moment, moment] }, segments)).toThrow("duplicate");
-    expect(() => validateWatch({ ...base, moments: [{ ...moment, at: 200 }] }, segments)).toThrow("outside");
+  it("accepts a top-level array, clamps drift, drops duplicates and unknown anchors", () => {
+    const r = validateWatch([{ ...moment, at: 200 }, moment, { ...moment, segmentId: "s99" }], segments);
+    expect(r.moments.length).toBe(1);
+    expect(r.moments[0]?.at).toBe(140);
+  });
+  it("still rejects results missing too many segments", () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({ id: `s${i}`, start: i * 10, end: i * 10 + 10, text: "x" }));
+    expect(() => validateWatch({ summary: "S", moments: [{ ...moment, segmentId: "s0", at: 1 }] }, many)).toThrow("1/10");
   });
   it("refreshes old format and only reuses a new result completed after the request", () => {
     const old = { watch_format: 0, created_at: "2026-10-21T07:00:00Z" };

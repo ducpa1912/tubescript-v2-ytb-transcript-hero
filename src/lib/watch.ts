@@ -24,20 +24,43 @@ export const watchResultSchema = z.object({
 });
 export type WatchCategory = z.infer<typeof shotCategorySchema>;
 export type WatchResult = ReturnType<typeof validateWatch>;
+/** Accepts common provider wrapper variants; content is still strictly validated afterwards. */
+export function normalizeWatchShape(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    if (value.length === 1 && value[0] && typeof value[0] === "object" && Array.isArray((value[0] as Record<string, unknown>).moments)) return value[0];
+    return { summary: "Audiovisual moments for this video.", visual_narrative: "", moments: value };
+  }
+  if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    for (const k of ["result", "analysis", "data", "output"]) {
+      const inner = o[k];
+      if (inner && typeof inner === "object" && !Array.isArray(inner) && Array.isArray((inner as Record<string, unknown>).moments)) return inner;
+    }
+    if (!Array.isArray(o.moments)) for (const k of ["observations", "timeline", "segments"]) if (Array.isArray(o[k])) return { ...o, moments: o[k] };
+  }
+  return value;
+}
+const MISSING_TOLERANCE = (n: number) => Math.max(2, Math.ceil(n * 0.15));
 export function validateWatch(value: unknown, segments: Segment[]) {
-  const parsed = watchResultSchema.parse(value);
+  const raw = normalizeWatchShape(value) as Record<string, unknown> | null;
+  if (raw && Array.isArray(raw.moments)) {
+    // Drop individually malformed or unknown-anchor moments instead of rejecting the whole result.
+    raw.moments = raw.moments.filter((m) => watchMomentSchema.safeParse(m).success
+      && segments.some((s) => s.id === (m as { segmentId: string }).segmentId && s.start != null && s.end != null));
+  }
+  const parsed = watchResultSchema.parse(raw);
   const coverage = new Set<string>();
   const anchors = new Map(segments.map((s) => [s.id, s]));
-  const moments = parsed.moments.map((m) => {
-    const segment = anchors.get(m.segmentId);
-    if (!segment || segment.start == null || segment.end == null) throw new Error("Watch returned an unknown or untimed segment.");
-    if (coverage.has(m.segmentId)) throw new Error("Watch returned duplicate moments.");
-    if (m.at < segment.start || m.at > segment.end) throw new Error("Watch moment timestamp is outside its caption interval.");
+  const moments = parsed.moments.flatMap((m) => {
+    const segment = anchors.get(m.segmentId)!;
+    if (coverage.has(m.segmentId)) return [];
     coverage.add(m.segmentId);
     const round = (n: number) => Math.round(n * 100) / 100;
-    return { ...m, at: round(m.at), start: round(segment.start), end: round(segment.end) };
+    // Segment timing is authoritative; clamp drifting model timestamps into the caption interval.
+    const at = Math.min(segment.end!, Math.max(segment.start!, m.at));
+    return [{ ...m, at: round(at), start: round(segment.start!), end: round(segment.end!) }];
   });
-  if (coverage.size !== segments.length) throw new Error(`Watch covered only ${coverage.size}/${segments.length} synchronized moments.`);
+  if (segments.length - coverage.size > MISSING_TOLERANCE(segments.length)) throw new Error(`Watch covered only ${coverage.size}/${segments.length} synchronized moments.`);
   const order = new Map(segments.map((s, i) => [s.id, i]));
   moments.sort((a, b) => (order.get(a.segmentId) ?? 0) - (order.get(b.segmentId) ?? 0));
   return { ...parsed, moments };
