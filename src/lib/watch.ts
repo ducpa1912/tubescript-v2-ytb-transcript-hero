@@ -27,25 +27,25 @@ export type WatchResult = ReturnType<typeof validateWatch>;
 /** Accepts common provider wrapper variants; content is still strictly validated afterwards. */
 export function normalizeWatchShape(value: unknown): unknown {
   if (Array.isArray(value)) {
-    if (value.length === 1 && value[0] && typeof value[0] === "object" && Array.isArray((value[0] as Record<string, unknown>).moments)) return value[0];
+    if (value.length === 1 && value[0] && typeof value[0] === "object" && Array.isArray((value[0] as Record<string, unknown>)["moments"])) return value[0];
     return { summary: "Audiovisual moments for this video.", visual_narrative: "", moments: value };
   }
   if (value && typeof value === "object") {
     const o = value as Record<string, unknown>;
     for (const k of ["result", "analysis", "data", "output"]) {
       const inner = o[k];
-      if (inner && typeof inner === "object" && !Array.isArray(inner) && Array.isArray((inner as Record<string, unknown>).moments)) return inner;
+      if (inner && typeof inner === "object" && !Array.isArray(inner) && Array.isArray((inner as Record<string, unknown>)["moments"])) return inner;
     }
-    if (!Array.isArray(o.moments)) for (const k of ["observations", "timeline", "segments"]) if (Array.isArray(o[k])) return { ...o, moments: o[k] };
+    if (!Array.isArray(o["moments"])) for (const k of ["observations", "timeline", "segments"]) if (Array.isArray(o[k])) return { ...o, moments: o[k] };
   }
   return value;
 }
 const MISSING_TOLERANCE = (n: number) => Math.max(2, Math.ceil(n * 0.15));
 export function validateWatch(value: unknown, segments: Segment[]) {
   const raw = normalizeWatchShape(value) as Record<string, unknown> | null;
-  if (raw && Array.isArray(raw.moments)) {
+  if (raw && Array.isArray(raw["moments"])) {
     // Drop individually malformed or unknown-anchor moments instead of rejecting the whole result.
-    raw.moments = raw.moments.filter((m) => watchMomentSchema.safeParse(m).success
+    raw["moments"] = raw["moments"].filter((m) => watchMomentSchema.safeParse(m).success
       && segments.some((s) => s.id === (m as { segmentId: string }).segmentId && s.start != null && s.end != null));
   }
   const parsed = watchResultSchema.parse(raw);
