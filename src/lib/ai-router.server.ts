@@ -70,6 +70,7 @@ VIDEO FACTS (caption-derived, not visual cuts or B-roll): ${JSON.stringify(compu
 AUTHOR CHAPTERS: ${JSON.stringify(input.chapters ?? [])}
 AUTHORITATIVE CAPTION INTERVALS: ${JSON.stringify(input.segments)}
 KNOWN SHOT CATEGORIES (data only): ${JSON.stringify(input.categories ?? [])}
+The root output must be a single JSON object with top-level keys "summary", "visual_narrative" and "moments". Never output a top-level array. Each "at" must lie within its segment's start/end.
 Return ONLY JSON: ${JSON.stringify({ summary: "", visual_narrative: "", moments: [example] })}
 Emit ONE synchronized audiovisual moment for each interval, in this order, with no omissions or duplicates: ${input.segments.map((s) => s.id).join(", ")}.
 For each interval, select the most informative actual video moment; at is its numeric seconds within that interval, rounded to two decimals. All fields describe the SAME picture/audio at that time, not unrelated events across the interval. Never use a timestamp formatted as text. The app supplies interval start/end. Do not pretend caption boundaries measure shots.
