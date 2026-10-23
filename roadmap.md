@@ -11,6 +11,7 @@
 - [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
 
 ## Tasks
+- [ ] Embed Channel Brain in channel projects with availability icons and structured contextual hit/flop intelligence; validate scoring, ingestion and signed-in presentation.
 - [x] Reduce Decodo calls: YouTube-first fallback on blocks/missing data, skip complete metadata, use one subtitle request when the English origin is known; 29 regression checks passed.
 - [ ] Consolidate unknown subtitle origins into one request: blocked by Decodo's documented one-origin contract; preserve creator-first fallback meanwhile.
 - [x] Creator suite 1: Retention spike & drop deconstructor in the Watch tab + hook/retention technique playbook.
