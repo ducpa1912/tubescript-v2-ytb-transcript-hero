@@ -154,3 +154,36 @@ export async function routeAnalysis(input: AnalysisInput, log: (route: Route, ou
   }
   throw new Error(`Analysis unavailable; no credits spent. ${errors.join("; ") || "Providers are cooling down. Retry shortly."}`);
 }
+/** Free-only text generation for channel-level features (brief, chat, scripts). Same free Read cascade, never paid. */
+export async function routeText(prompt: string, opts: { json?: boolean; maxTokens?: number; timeoutMs?: number } = {}) {
+  const routes = await availableRoutes({ watchModel: "google/gemini-3.1-flash-lite", autoRollup: false, readPaidFallback: false, batchSize: 5 } as unknown as AnalysisSettings, "read");
+  if (!routes.length) throw new Error("No free AI model is available right now. Try again shortly.");
+  if (prompt.length > 450000) throw new Error("Too much material for one request.");
+  const key = process.env["OPENROUTER_API_KEY"];
+  const errors: string[] = [];
+  const deadline = Date.now() + (opts.timeoutMs ?? 300000);
+  for (const route of routes) {
+    const routeKey = `${route.provider}:${route.model}`;
+    if ((cooldowns.get(routeKey) ?? 0) > Date.now()) continue;
+    const remaining = deadline - Date.now();
+    if (remaining < 5000) break;
+    try {
+      const response = await fetch(route.endpoint, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "Tubescript" },
+        body: JSON.stringify({ model: route.model, max_tokens: opts.maxTokens ?? 6000, reasoning: { effort: "medium" }, ...(opts.json ? { response_format: { type: "json_object" } } : {}), messages: [{ role: "user", content: prompt }] }),
+        signal: AbortSignal.timeout(remaining) });
+      if (!response.ok) {
+        if (response.status === 429 || response.status >= 500) cooldowns.set(routeKey, Date.now() + 120000);
+        throw new Error(`Provider returned ${response.status}`);
+      }
+      const payload = await response.json() as { choices?: { message?: { content?: string } }[] };
+      const text = payload.choices?.[0]?.message?.content?.trim();
+      if (!text) throw new Error("Empty response");
+      return { text: opts.json ? text.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "") : text, model: route.model };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "failed";
+      if (/timeout|aborted/i.test(detail)) cooldowns.set(routeKey, Date.now() + 120000);
+      errors.push(`${route.model}: ${detail}`);
+    }
+  }
+  throw new Error(`AI is busy; nothing was charged. ${errors.join("; ")}`);
+}
