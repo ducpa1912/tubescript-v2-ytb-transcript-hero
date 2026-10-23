@@ -1,9 +1,10 @@
 // Client-safe retention deconstruction: YouTube replay heat is "most replayed", not true retention,
 // so every label here stays phrased as replay interest, never measured audience retention.
 import type { HeatMoment } from "./analysis";
-import type { WatchResult } from "./watch";
+import type { z } from "zod";
+import type { watchResultSchema } from "./watch";
 
-type Moment = WatchResult["moments"][number];
+type Moment = z.infer<typeof watchResultSchema>["moments"][number];
 export type RetentionEvent = { kind: "spike" | "drop"; startS: number; endS: number; intensity: number; change: number };
 export type DeconstructedEvent = RetentionEvent & { moment: Moment | null; cues: string[]; risks: string[] };
 export type RetentionTip = { id: string; title: string; detail: string; evidence: number[]; seen: boolean };
