@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { buildBriefPrompt, buildChatPrompt, buildScriptPrompt, retrieve, scoreChannel, type ChannelVideo } from "./channel";
+import { dossierMarkdown, parseChannelDossier, validateChannelDossier } from "./channel-intelligence";
 
 const channelId = z.string().min(1).max(64);
 type Ctx = { supabase: any; userId: string };
@@ -43,7 +44,7 @@ export const getChannelBrain = createServerFn({ method: "GET" }).middleware([req
     const stats = scoreChannel(videos);
     return {
       channelTitle: (project.data?.channel_title as string) || data.channelId,
-      brief, scripts: scripts.data ?? [],
+      brief, dossier: brief ? parseChannelDossier(brief.markdown) : null, scripts: scripts.data ?? [],
       stats: { ...stats, videos: stats.videos.map(({ transcript, ...v }) => ({ ...v, hasTranscript: Boolean(transcript) })) },
     };
   });
@@ -58,9 +59,11 @@ export const generateChannelBrief = createServerFn({ method: "POST" }).middlewar
     const { routeText } = await import("./ai-router.server");
     const start = Date.now();
     try {
-      const out = await routeText(buildBriefPrompt((project.data?.channel_title as string) || data.channelId, stats), { maxTokens: 8000 });
-      await (await admin()).from("channel_briefs").upsert({ user_id: ctx.userId, channel_id: data.channelId, markdown: out.text, model: out.model, video_count: withText,
+      const out = await routeText(buildBriefPrompt((project.data?.channel_title as string) || data.channelId, stats), { json: true, maxTokens: 8000 });
+      const dossier = validateChannelDossier(JSON.parse(out.text), stats.videos);
+      const { error: saveError } = await (await admin()).from("channel_briefs").upsert({ user_id: ctx.userId, channel_id: data.channelId, markdown: JSON.stringify(dossier), model: out.model, video_count: withText,
         stats: { medianViews: stats.medianViews, hits: stats.hits, flops: stats.flops, count: stats.count }, updated_at: new Date().toISOString() });
+      if (saveError) throw new Error("Could not save channel analysis; your previous analysis was kept.");
       await log(ctx.userId, "channel_brief", out.model, "success", `${withText} transcripts`, Date.now() - start);
       return { markdown: out.text };
     } catch (e) {
@@ -78,7 +81,9 @@ export const askChannelBrain = createServerFn({ method: "POST" }).middleware([re
     if (!brief) throw new Error("Generate the channel analysis first.");
     const chunks = retrieve(data.question + " " + data.history.slice(-2).map((m) => m.content).join(" "), videos);
     const { routeText } = await import("./ai-router.server");
-    const out = await routeText(buildChatPrompt(brief.markdown, data.question, chunks, data.history), { maxTokens: 3000, timeoutMs: 180000 });
+    const dossier = parseChannelDossier(brief.markdown);
+    const briefText = dossier ? dossierMarkdown(dossier, data.channelId, videos) : brief.markdown;
+    const out = await routeText(buildChatPrompt(briefText, data.question, chunks, data.history), { maxTokens: 3000, timeoutMs: 180000 });
     return { answer: out.text, sources: [...new Map(chunks.map((c) => [c.videoId, { videoId: c.videoId, title: c.title }])).values()] };
   });
 
