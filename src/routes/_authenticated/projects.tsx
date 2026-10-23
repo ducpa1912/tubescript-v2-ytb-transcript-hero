@@ -96,6 +96,7 @@ function ProjectsPage() {
                 {p.video_count} videos · updated {new Date(p.updated_at).toLocaleDateString()}
               </p>
             </div>
+            <Link to="/channel/$channelId" params={{ channelId: p.channel_id }} onClick={(e) => e.stopPropagation()} className="shrink-0 rounded-md border border-input px-3 py-1.5 text-xs text-foreground hover:bg-background">Channel Brain</Link>
           </a>
         ))}
       </div>
