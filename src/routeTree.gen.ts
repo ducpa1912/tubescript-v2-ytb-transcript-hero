@@ -16,6 +16,7 @@ import { Route as AuthenticatedAnalysisRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticated/billing'
 import { Route as AuthenticatedLogsRouteImport } from './routes/_authenticated/logs'
 import { Route as AuthenticatedProjectsRouteImport } from './routes/_authenticated/projects'
+import { Route as AuthenticatedChannelChannelIdRouteImport } from './routes/_authenticated/channel.$channelId'
 import { Route as ApiPublicStripeWebhookRouteImport } from './routes/api/public/stripe-webhook'
 
 const IndexRoute = IndexRouteImport.update({
@@ -52,6 +53,12 @@ const AuthenticatedProjectsRoute = AuthenticatedProjectsRouteImport.update({
   path: '/projects',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedChannelChannelIdRoute =
+  AuthenticatedChannelChannelIdRouteImport.update({
+    id: '/channel/$channelId',
+    path: '/channel/$channelId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const ApiPublicStripeWebhookRoute = ApiPublicStripeWebhookRouteImport.update({
   id: '/api/public/stripe-webhook',
   path: '/api/public/stripe-webhook',
@@ -65,6 +72,7 @@ export interface FileRoutesByFullPath {
   '/billing': typeof AuthenticatedBillingRoute
   '/logs': typeof AuthenticatedLogsRoute
   '/projects': typeof AuthenticatedProjectsRoute
+  '/channel/$channelId': typeof AuthenticatedChannelChannelIdRoute
   '/api/public/stripe-webhook': typeof ApiPublicStripeWebhookRoute
 }
 export interface FileRoutesByTo {
@@ -74,6 +82,7 @@ export interface FileRoutesByTo {
   '/billing': typeof AuthenticatedBillingRoute
   '/logs': typeof AuthenticatedLogsRoute
   '/projects': typeof AuthenticatedProjectsRoute
+  '/channel/$channelId': typeof AuthenticatedChannelChannelIdRoute
   '/api/public/stripe-webhook': typeof ApiPublicStripeWebhookRoute
 }
 export interface FileRoutesById {
@@ -85,6 +94,7 @@ export interface FileRoutesById {
   '/_authenticated/billing': typeof AuthenticatedBillingRoute
   '/_authenticated/logs': typeof AuthenticatedLogsRoute
   '/_authenticated/projects': typeof AuthenticatedProjectsRoute
+  '/_authenticated/channel/$channelId': typeof AuthenticatedChannelChannelIdRoute
   '/api/public/stripe-webhook': typeof ApiPublicStripeWebhookRoute
 }
 export interface FileRouteTypes {
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/billing'
     | '/logs'
     | '/projects'
+    | '/channel/$channelId'
     | '/api/public/stripe-webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/billing'
     | '/logs'
     | '/projects'
+    | '/channel/$channelId'
     | '/api/public/stripe-webhook'
   id:
     | '__root__'
@@ -115,6 +127,7 @@ export interface FileRouteTypes {
     | '/_authenticated/billing'
     | '/_authenticated/logs'
     | '/_authenticated/projects'
+    | '/_authenticated/channel/$channelId'
     | '/api/public/stripe-webhook'
   fileRoutesById: FileRoutesById
 }
@@ -176,6 +189,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/channel/$channelId': {
+      id: '/_authenticated/channel/$channelId'
+      path: '/channel/$channelId'
+      fullPath: '/channel/$channelId'
+      preLoaderRoute: typeof AuthenticatedChannelChannelIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/api/public/stripe-webhook': {
       id: '/api/public/stripe-webhook'
       path: '/api/public/stripe-webhook'
@@ -191,6 +211,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedBillingRoute: typeof AuthenticatedBillingRoute
   AuthenticatedLogsRoute: typeof AuthenticatedLogsRoute
   AuthenticatedProjectsRoute: typeof AuthenticatedProjectsRoute
+  AuthenticatedChannelChannelIdRoute: typeof AuthenticatedChannelChannelIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -198,6 +219,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedBillingRoute: AuthenticatedBillingRoute,
   AuthenticatedLogsRoute: AuthenticatedLogsRoute,
   AuthenticatedProjectsRoute: AuthenticatedProjectsRoute,
+  AuthenticatedChannelChannelIdRoute: AuthenticatedChannelChannelIdRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
