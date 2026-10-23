@@ -35,6 +35,6 @@ describe("channel hit vs flop scoring", () => {
   });
   it("retrieves the chunk that matches the question", () => {
     const r = retrieve("pricing strategy", [{ ...base("x", 1), transcript: "we talk about pricing strategy here" }, { ...base("y", 1), transcript: "cooking pasta" }]);
-    expect(r[0].videoId).toBe("x");
+    expect(r[0]?.videoId).toBe("x");
   });
 });

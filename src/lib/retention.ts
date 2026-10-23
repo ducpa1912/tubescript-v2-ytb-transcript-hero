@@ -30,10 +30,11 @@ export function detectRetention(heat: HeatMoment[], max = 5): { baseline: number
       spikes.push({ kind: "spike", startS: p.startMs / 1000, endS: p.startMs / 1000 + step, intensity: p.intensity, change: +(p.intensity - baseline).toFixed(3) });
   });
   const drops: RetentionEvent[] = [];
-  let run: { start: number; end: number; from: number; to: number } | null = null;
+  type Run = { start: number; end: number; from: number; to: number };
+  let run = null as Run | null;
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i]!, b = points[i + 1]!;
-    if (b.intensity < a.intensity) run = run ? { ...run, end: b.startMs, to: b.intensity } : { start: a.startMs, end: b.startMs, from: a.intensity, to: b.intensity };
+    if (b.intensity < a.intensity) run = run ? { start: run.start, from: run.from, end: b.startMs, to: b.intensity } : { start: a.startMs, end: b.startMs, from: a.intensity, to: b.intensity };
     else if (run) { if (run.from - run.to >= DROP_FALL) drops.push(toDrop(run)); run = null; }
   }
   if (run && run.from - run.to >= DROP_FALL) drops.push(toDrop(run));
