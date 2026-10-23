@@ -139,6 +139,36 @@ export type Database = {
         }
         Relationships: []
       }
+      channel_briefs: {
+        Row: {
+          channel_id: string
+          markdown: string
+          model: string
+          stats: Json
+          updated_at: string
+          user_id: string
+          video_count: number
+        }
+        Insert: {
+          channel_id: string
+          markdown?: string
+          model?: string
+          stats?: Json
+          updated_at?: string
+          user_id: string
+          video_count?: number
+        }
+        Update: {
+          channel_id?: string
+          markdown?: string
+          model?: string
+          stats?: Json
+          updated_at?: string
+          user_id?: string
+          video_count?: number
+        }
+        Relationships: []
+      }
       channels: {
         Row: {
           discovered_at: string
@@ -246,6 +276,39 @@ export type Database = {
         Update: {
           day?: string
           used?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      generated_scripts: {
+        Row: {
+          channel_id: string
+          created_at: string
+          id: string
+          input: Json
+          mode: string
+          model: string
+          output: string
+          user_id: string
+        }
+        Insert: {
+          channel_id: string
+          created_at?: string
+          id?: string
+          input?: Json
+          mode: string
+          model?: string
+          output: string
+          user_id: string
+        }
+        Update: {
+          channel_id?: string
+          created_at?: string
+          id?: string
+          input?: Json
+          mode?: string
+          model?: string
+          output?: string
           user_id?: string
         }
         Relationships: []
