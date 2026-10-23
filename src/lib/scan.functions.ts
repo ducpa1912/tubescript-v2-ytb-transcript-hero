@@ -7,7 +7,7 @@ import { collectionIdPattern } from "@/lib/collections";
 import { normalizeCues, type Cue } from "@/lib/captions";
 import { saveDiscoveredVideos } from "@/lib/video-discovery";
 
-const BATCH = 9; // videos per call; 3 at a time x 2 Decodo calls = 6 outbound (Worker cap)
+const BATCH = 9; // 3 videos at a time, at most 2 simultaneous provider requests each.
 const MAX_ATTEMPTS = 3;
 const FREE_DAILY = 10; // registered users: 10 video transcripts per day
 
@@ -97,7 +97,7 @@ export const startScan = createServerFn({ method: "POST" })
       let freshCues: Cue[] = [];
       const t0 = Date.now();
       try {
-        const r = await yt.extractVideo(parsed.videoId, saved?.title);
+        const r = await yt.extractVideo(parsed.videoId, saved ? { title: saved.title, views: saved.views, durationSeconds: saved.duration_seconds, publishDate: saved.publish_date } : undefined);
         await writeLogs(db, [{ user_id: userId, video_id: parsed.videoId, stage: "single_video", route: r.route ?? "decodo_subtitles", outcome: r.status, detail: r.statusDetail ?? (r.captionLang ? `lang ${r.captionLang}` : null), duration_ms: Date.now() - t0 }]);
         const row = latestMeta(toRow(r), saved);
         const { error } = await db.from("videos").upsert({ ...row, channel_id: saved?.channel_id ?? null, position: saved?.position ?? 0 });
@@ -296,7 +296,7 @@ export const processBatch = createServerFn({ method: "POST" })
       }
       const t0 = Date.now();
       try {
-        const r = await yt.extractVideo(v.id, v.title);
+        const r = await yt.extractVideo(v.id, { title: v.title, views: v.views, durationSeconds: v.duration_seconds, publishDate: v.publish_date });
         logs.push({ ...base, video_id: v.id, route: r.route ?? "decodo_subtitles", outcome: r.status, detail: r.statusDetail ?? (r.captionLang ? `lang ${r.captionLang}` : null), duration_ms: Date.now() - t0 });
         if (r.transcript) await saveTranscript(db, r.id, r.transcript, r.captionLang, r.cues);
         await db.from("videos").update({ ...latestMeta(toRow(r), v), attempts: v.attempts + 1 }).eq("id", v.id);

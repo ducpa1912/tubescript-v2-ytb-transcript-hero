@@ -1,7 +1,7 @@
 // Keyless YouTube extractor. Pure fetch — safe for the Worker runtime.
 // Discovery: channel /videos tab (ytInitialData) + innertube browse continuations, RSS feed as cross-check.
-// Caption extraction and per-video metadata: Decodo Web Data API.
-import { type Cue } from "./captions";
+// Caption extraction: direct YouTube, then consolidated Decodo fallback.
+import { normalizeCues, parseCaptionXml, type Cue } from "./captions";
 import { isKnownPage } from "./collections";
 import { decodoMetadata, decodoSubtitles } from "./decodo.server";
 import type { HeatMoment } from "./analysis";
@@ -301,21 +301,94 @@ function decodeXml(s: string): string {
 }
 
 
-/** All fresh extraction uses Decodo; callers check the shared cache first. */
-export async function extractVideo(videoId: string, knownTitle?: string | null): Promise<VideoResult> {
-  const [meta, subs] = await Promise.all([
-    decodoMetadata(videoId).catch(() => null), // Metadata failure must not discard delivered captions.
-    decodoSubtitles(videoId),
-  ]);
-  const base: VideoResult = {
-    id: videoId, title: meta?.title || knownTitle || "",
-    views: meta?.views ?? null, durationSeconds: meta?.durationSeconds ?? null,
-    publishDate: meta?.publishDate ?? null, isShort: false,
-    status: "no_captions", captionLang: null, transcript: null, statusDetail: "No English subtitles available",
-    route: meta ? "decodo_subtitles+metadata" : "decodo_subtitles",
+export type KnownVideoMetadata = Partial<Pick<VideoResult, "title" | "views" | "durationSeconds" | "publishDate">>;
+
+/** Zero views are known; empty titles/dates and invalid numbers are not. */
+export function hasCompleteMetadata(meta: KnownVideoMetadata): boolean {
+  return !!meta.title?.trim() && meta.views != null && Number.isFinite(meta.views) && meta.views >= 0
+    && meta.durationSeconds != null && Number.isFinite(meta.durationSeconds) && meta.durationSeconds > 0
+    && !!meta.publishDate && Number.isFinite(Date.parse(meta.publishDate));
+}
+
+async function extractDirect(videoId: string, base: VideoResult): Promise<VideoResult> {
+  const response = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en`, {
+    headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9", Cookie: "CONSENT=YES+1" },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) { await response.body?.cancel(); throw new Error(`YouTube watch HTTP ${response.status}`); }
+  const html = await response.text();
+  const player = extractJsonAfter(html, "var ytInitialPlayerResponse")
+    ?? extractJsonAfter(html, "ytInitialPlayerResponse =") ?? extractJsonAfter(html, 'window["ytInitialPlayerResponse"]');
+  if (!player) throw new Error("YouTube player data missing or bot blocked");
+  const details = player.videoDetails ?? {};
+  const micro = player.microformat?.playerMicroformatRenderer ?? {};
+  const number = (value: unknown, fallback: number | null) => {
+    if (value == null || value === "") return fallback;
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
   };
-  if (!subs) return base;
-  return { ...base, status: "ok", captionLang: subs.lang, transcript: subs.transcript, cues: subs.cues, statusDetail: null };
+  Object.assign(base, {
+    title: details.title || base.title,
+    views: number(details.viewCount, base.views),
+    durationSeconds: number(details.lengthSeconds, base.durationSeconds),
+    publishDate: micro.publishDate || micro.uploadDate || base.publishDate,
+  });
+  const blocked = accessBlock([player]);
+  if (blocked) throw new BotCheckError(blocked, base);
+  const tracks = (player.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [])
+    .filter((track: any) => /^en(?:$|[-_])/i.test(String(track.languageCode ?? "")))
+    .sort((a: any, b: any) => Number(a.kind === "asr") - Number(b.kind === "asr"));
+  const track = tracks[0];
+  if (!track?.baseUrl) throw new Error("YouTube English caption tracks missing");
+  const url = new URL(track.baseUrl);
+  if (url.protocol !== "https:" || !(url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com")))
+    throw new Error("YouTube caption URL invalid");
+  url.searchParams.set("fmt", "json3");
+  const captions = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(8000) });
+  if (!captions.ok) { await captions.body?.cancel(); throw new Error(`YouTube captions HTTP ${captions.status}`); }
+  const text = await captions.text();
+  let parsed: { transcript: string; cues: Cue[] };
+  if (text.trim().startsWith("<")) parsed = parseCaptionXml(text);
+  else {
+    const events = JSON.parse(text).events;
+    const speech = Array.isArray(events) ? events.filter((e: any) => Array.isArray(e.segs)) : [];
+    parsed = {
+      transcript: speech.map((e: any) => e.segs.map((s: any) => s.utf8 ?? "").join("")).join(" ").replace(/\s+/g, " ").trim(),
+      cues: normalizeCues(speech.map((e: any) => ({ start: e.tStartMs / 1000, dur: e.dDurationMs / 1000, text: e.segs.map((s: any) => s.utf8 ?? "").join("") }))),
+    };
+  }
+  if (!parsed.transcript || !parsed.cues.length) throw new Error("YouTube captions empty or untimed");
+  return { ...base, ...parsed, status: "ok", captionLang: track.kind === "asr" ? "en (auto)" : "en", statusDetail: null };
+}
+
+/** Shared-cache checks belong to callers; one direct attempt, then only needed Decodo targets. */
+export async function extractVideo(videoId: string, known?: string | null | KnownVideoMetadata): Promise<VideoResult> {
+  const metadata = typeof known === "string" ? { title: known } : known ?? {};
+  let base: VideoResult = {
+    id: videoId, title: metadata.title || "", views: metadata.views ?? null,
+    durationSeconds: metadata.durationSeconds ?? null, publishDate: metadata.publishDate ?? null,
+    isShort: false, status: "no_captions", captionLang: null, transcript: null,
+    statusDetail: "No English subtitles available", route: "youtube_direct",
+  };
+  let fallbackReason: string | null = null;
+  try { base = await extractDirect(videoId, base); }
+  catch (error) { fallbackReason = error instanceof Error ? error.message : "YouTube extraction failed"; }
+  const needsSubtitles = base.status !== "ok";
+  const needsMetadata = !hasCompleteMetadata(base);
+  if (!needsSubtitles && !needsMetadata) return base;
+  const routes = ["youtube_direct", ...(needsSubtitles ? ["decodo_subtitles"] : []), ...(needsMetadata ? ["decodo_metadata"] : [])];
+  let metadataError: string | null = null;
+  const [meta, subs] = await Promise.all([
+    needsMetadata ? decodoMetadata(videoId).catch((error) => { metadataError = error instanceof Error ? error.message : "Metadata lookup failed"; return null; }) : Promise.resolve(null),
+    needsSubtitles ? decodoSubtitles(videoId) : Promise.resolve(null),
+  ]);
+  base = { ...base, title: meta?.title || base.title, views: meta?.views ?? base.views,
+    durationSeconds: meta?.durationSeconds ?? base.durationSeconds, publishDate: meta?.publishDate || base.publishDate,
+    route: routes.join("→") };
+  if (subs) base = { ...base, status: "ok", captionLang: subs.lang, transcript: subs.transcript, cues: subs.cues };
+  base.statusDetail = [base.status === "ok" ? null : "No English subtitles available", fallbackReason ? `Fallback: ${fallbackReason}` : null,
+    metadataError ? `Metadata retry needed: ${metadataError}` : needsMetadata && !hasCompleteMetadata(base) ? "Metadata incomplete; retry needed" : null].filter(Boolean).join("; ") || null;
+  return base;
 }
 
 /** Run tasks with a fixed concurrency pool (Worker outbound cap is 6). */
