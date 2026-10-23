@@ -1,5 +1,7 @@
 import { TranscriptViewer } from "@/components/transcript-viewer";
 import { AnalysisQueueControls } from "@/components/analysis-panel";
+import { ChannelBrain } from "@/components/channel-brain";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeCues, type Cue } from "@/lib/captions";
 import { collectionIdPattern, collectionUrl } from "@/lib/collections";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -230,7 +232,11 @@ function Index() {
           onRetryMissing={() => channel && run(true, collectionUrl(channel.id), true)} />
       )}
 
-      {list.length > 0 && <ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={!!channel} signedIn={!!user} onUnlocked={() => channel ? syncChannel(channel.id, true) : Promise.resolve()} onRetried={(r) => mergeRows([r])} />}
+      {list.length > 0 && <Tabs key={channel?.id ?? "single"} defaultValue="videos" className="mt-6">
+        {user && channel && !channel.id.startsWith("PL:") && <TabsList aria-label="Project view"><TabsTrigger value="videos">Videos</TabsTrigger><TabsTrigger value="brain">Channel Brain</TabsTrigger></TabsList>}
+        <TabsContent value="videos"><ResultsTable rows={list} heading={channel?.title ?? list[0]?.title ?? "Transcripts"} ready={phase === "done"} locked={!!channel} signedIn={!!user} onUnlocked={() => channel ? syncChannel(channel.id, true) : Promise.resolve()} onRetried={(r) => mergeRows([r])} /></TabsContent>
+        {user && channel && !channel.id.startsWith("PL:") && <TabsContent value="brain"><ChannelBrain channelId={channel.id} /></TabsContent>}
+      </Tabs>}
     </main>
   );
 }

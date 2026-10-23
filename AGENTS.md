@@ -37,4 +37,5 @@
 - Incremental channel discovery stops on a fully known page rather than a timestamp cutoff, because undated or backdated uploads must not be missed; count persisted membership, not only returned pages.
 
 ## Subdirectories
+- Channel Brain is a shared component embedded in the channel workspace; its legacy route remains a compatibility entry point, while projects indicate saved-brief availability without a separate action.
 - `src/lib/` has its own `AGENTS.md` (video analysis, creator intelligence); read it before changing files there.
