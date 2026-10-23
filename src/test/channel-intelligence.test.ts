@@ -34,13 +34,13 @@ describe("contextual explanation ingestion", () => {
     expect(dossierMarkdown(d, "Creator", videos)).toContain("We feared losing our work.");
   });
   it("rejects fabricated script quotes", () => {
-    const r = raw(); r.autopsies[0].evidence = [{ ...evidence, quote: "An invented audience comment." }];
+    const r = raw(); const first = r.autopsies[0]; if (!first) throw new Error("Missing fixture"); first.evidence = [{ ...evidence, quote: "An invented audience comment." }];
     expect(() => validateChannelDossier(r, scoreChannel(videos, now).videos)).toThrow("Unsupported transcript quote");
   });
   it("rejects unknown source videos and self-comparisons", () => {
-    const r = raw(); r.autopsies[0].comparisonVideoId = "unknown";
+    const r = raw(); const first = r.autopsies[0]; if (!first) throw new Error("Missing fixture"); first.comparisonVideoId = "unknown";
     expect(() => validateChannelDossier(r, scoreChannel(videos, now).videos)).toThrow("Unknown channel source");
-    r.autopsies[0].comparisonVideoId = "video0";
+    first.comparisonVideoId = "video0";
     expect(() => validateChannelDossier(r, scoreChannel(videos, now).videos)).toThrow("different comparator");
   });
 });
