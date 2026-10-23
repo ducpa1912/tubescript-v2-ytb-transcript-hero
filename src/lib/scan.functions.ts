@@ -85,7 +85,7 @@ export const startScan = createServerFn({ method: "POST" })
     const userId = await callerUserId();
 
     if (parsed.kind === "video") {
-      const { data: saved } = await db.from("videos").select("id,title,views,duration_seconds,publish_date,channel_id,position").eq("id", parsed.videoId).maybeSingle();
+      const { data: saved } = await db.from("videos").select("id,title,views,views_updated_at,duration_seconds,publish_date,channel_id,position").eq("id", parsed.videoId).maybeSingle();
       const { data: cached } = await db.from("video_transcripts").select("transcript").eq("video_id", parsed.videoId).maybeSingle();
       let transcript = cached?.transcript ?? null;
       if (cached?.transcript) {
@@ -342,7 +342,7 @@ function toRow(r: import("./youtube.server").VideoResult) {
     title: r.title,
     publish_date: r.publishDate,
     views: r.views,
-    views_updated_at: r.views != null ? new Date().toISOString() : null as string | null,
+    views_updated_at: r.viewsFetched ? new Date().toISOString() : null as string | null,
     duration_seconds: r.durationSeconds,
     status: r.status,
     status_detail: r.status === "ok" ? null : r.statusDetail,
@@ -361,7 +361,7 @@ function latestMeta<T extends ReturnType<typeof toRow>>(row: T, saved: Saved | n
     ...row,
     title: row.title || saved.title,
     views: row.views ?? saved.views,
-    views_updated_at: row.views != null ? row.views_updated_at : saved.views_updated_at ?? null,
+    views_updated_at: row.views_updated_at ?? saved.views_updated_at ?? null,
     duration_seconds: row.duration_seconds ?? saved.duration_seconds,
     publish_date: row.publish_date ?? saved.publish_date,
   };

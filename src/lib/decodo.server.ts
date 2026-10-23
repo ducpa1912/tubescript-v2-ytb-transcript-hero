@@ -43,7 +43,10 @@ function findArray(o: any, pred: (x: any) => boolean, depth = 0): any[] | null {
 }
 
 /** English transcript via youtube_subtitles. Returns null when no English track is available. */
-export async function decodoSubtitles(videoId: string): Promise<{ transcript: string; lang: string; cues: Cue[] } | null> {
+export async function decodoSubtitles(videoId: string, knownOrigin?: "uploader_provided" | "auto_generated"): Promise<{ transcript: string; lang: string; cues: Cue[] } | null> {
+  // If the direct player identified an auto-only English track, skip the doomed creator request.
+  // Decodo selects ONE origin (default auto); there is no documented dual-origin option.
+  if (knownOrigin === "auto_generated") return parseDecodoSubtitles(await scrape("youtube_subtitles", videoId, { language_code: "en", subtitle_origin: "auto_generated" }));
   const uploaded = await scrape("youtube_subtitles", videoId, { language_code: "en", subtitle_origin: "uploader_provided" });
   const preferred = parseDecodoSubtitles(uploaded);
   if (preferred) return preferred;

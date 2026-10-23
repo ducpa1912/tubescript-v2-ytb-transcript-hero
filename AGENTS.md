@@ -24,7 +24,7 @@
 - Profile rows are created lazily by server functions (upsert) — no triggers on `auth.users`.
 - Metadata is latest-wins but never blank-wins: newer non-empty title/views/duration/date replace old values (rounded listing views refresh at most daily), empty values never overwrite; transcripts are never re-fetched or replaced — YouTube often blocks mid-crawl and partial data must survive.
 - Quota is charged only for delivered transcripts (fresh or from the shared cache); no-caption/failed videos are free.
-- Fresh captions, retries and enrichment share `extractVideo`: direct YouTube first, Decodo on blocked/missing captions and incomplete metadata. Pass known metadata to avoid redundant lookups, fetch both subtitle origins once, and surface provider failures as retryable errors with server-only credentials.
+- Fresh captions, retries and enrichment share `extractVideo`: direct YouTube first, Decodo on blocked/missing captions and incomplete metadata. Pass known metadata and track origin to avoid redundant lookups; Decodo supports one origin/request, so unknown tracks retain creator-then-auto fallback. Provider failures remain retryable; credentials stay server-only.
 - Transcripts are English-only (creator track preferred over auto-generated) — non-English-only videos resolve as no captions.
 - Pipeline events (discovery/transcript/billing + route taken) are appended to `pipeline_logs` via admin client, owner-readable only; logging failures never break crawls.
 - Stripe billing uses authenticated server functions, a separate Elements-based Link checkout, and a signature-verified public webhook; paid invoice/session IDs are deduplicated inside the same database transaction that updates wallets and appends the ledger.

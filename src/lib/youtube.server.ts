@@ -75,6 +75,8 @@ export type VideoResult = {
   statusDetail: string | null;
   /** Which extraction path produced this result (for pipeline logs). */
   route?: string;
+  viewsFetched?: boolean;
+  captionOrigin?: "uploader_provided" | "auto_generated";
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -332,6 +334,7 @@ async function extractDirect(videoId: string, base: VideoResult): Promise<VideoR
     views: number(details.viewCount, base.views),
     durationSeconds: number(details.lengthSeconds, base.durationSeconds),
     publishDate: micro.publishDate || micro.uploadDate || base.publishDate,
+    viewsFetched: details.viewCount != null && details.viewCount !== "" && Number.isFinite(Number(details.viewCount)),
   });
   const blocked = accessBlock([player]);
   if (blocked) throw new BotCheckError(blocked, base);
@@ -339,6 +342,7 @@ async function extractDirect(videoId: string, base: VideoResult): Promise<VideoR
     .filter((track: any) => /^en(?:$|[-_])/i.test(String(track.languageCode ?? "")))
     .sort((a: any, b: any) => Number(a.kind === "asr") - Number(b.kind === "asr"));
   const track = tracks[0];
+  if (track) base.captionOrigin = track.kind === "asr" ? "auto_generated" : "uploader_provided";
   if (!track?.baseUrl) throw new Error("YouTube English caption tracks missing");
   const url = new URL(track.baseUrl);
   if (url.protocol !== "https:" || !(url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com")))
@@ -380,11 +384,11 @@ export async function extractVideo(videoId: string, known?: string | null | Know
   let metadataError: string | null = null;
   const [meta, subs] = await Promise.all([
     needsMetadata ? decodoMetadata(videoId).catch((error) => { metadataError = error instanceof Error ? error.message : "Metadata lookup failed"; return null; }) : Promise.resolve(null),
-    needsSubtitles ? decodoSubtitles(videoId) : Promise.resolve(null),
+    needsSubtitles ? decodoSubtitles(videoId, base.captionOrigin) : Promise.resolve(null),
   ]);
   base = { ...base, title: meta?.title || base.title, views: meta?.views ?? base.views,
     durationSeconds: meta?.durationSeconds ?? base.durationSeconds, publishDate: meta?.publishDate || base.publishDate,
-    route: routes.join("→") };
+    viewsFetched: base.viewsFetched || meta?.views != null, route: routes.join("→") };
   if (subs) base = { ...base, status: "ok", captionLang: subs.lang, transcript: subs.transcript, cues: subs.cues };
   base.statusDetail = [base.status === "ok" ? null : "No English subtitles available", fallbackReason ? `Fallback: ${fallbackReason}` : null,
     metadataError ? `Metadata retry needed: ${metadataError}` : needsMetadata && !hasCompleteMetadata(base) ? "Metadata incomplete; retry needed" : null].filter(Boolean).join("; ") || null;
