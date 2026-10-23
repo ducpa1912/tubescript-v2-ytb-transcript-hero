@@ -100,21 +100,25 @@ export const generateScript = createServerFn({ method: "POST" }).middleware([req
     const ctx = context as unknown as Ctx;
     const brief = await loadBrief(ctx, data.channelId);
     if (!brief) throw new Error("Generate the channel analysis first.");
+    const channelVideos = await loadChannel(ctx, data.channelId, true);
+    const dossier = parseChannelDossier(brief.markdown);
+    const briefText = dossier ? dossierMarkdown(dossier, data.channelId, channelVideos) : brief.markdown;
     let source: ChannelVideo | undefined;
     if (data.mode === "replicate") {
       if (!data.sourceVideoId) throw new Error("Choose a source video to replicate.");
-      source = (await loadChannel(ctx, data.channelId, true)).find((v) => v.id === data.sourceVideoId);
+      source = channelVideos.find((v) => v.id === data.sourceVideoId);
       if (!source?.transcript) throw new Error("Unlock that video's transcript first.");
     }
     let ownBrief: string | undefined;
     if (data.mode === "gap") {
       const own = await loadBrief(ctx, data.ownChannelId ?? data.channelId);
       if (!own) throw new Error("Crawl your own channel and generate its channel analysis first.");
-      ownBrief = own.markdown;
+      const ownDossier = parseChannelDossier(own.markdown);
+      ownBrief = ownDossier ? dossierMarkdown(ownDossier, data.ownChannelId ?? data.channelId, await loadChannel(ctx, data.ownChannelId ?? data.channelId, false)) : own.markdown;
     }
     const { routeText } = await import("./ai-router.server");
     const start = Date.now();
-    const out = await routeText(buildScriptPrompt(data.mode, { brief: brief.markdown, ownBrief, topic: data.topic, source, lengthMin: data.lengthMin }), { maxTokens: 9000 });
+    const out = await routeText(buildScriptPrompt(data.mode, { brief: briefText, ownBrief, topic: data.topic, source, lengthMin: data.lengthMin }), { maxTokens: 9000 });
     const { data: saved } = await (await admin()).from("generated_scripts").insert({ user_id: ctx.userId, channel_id: data.channelId, mode: data.mode, model: out.model,
       input: { topic: data.topic ?? "", sourceVideoId: data.sourceVideoId ?? "", ownChannelId: data.ownChannelId ?? "", lengthMin: data.lengthMin }, output: out.text }).select("id, created_at").single();
     await log(ctx.userId, "script_generate", out.model, "success", data.mode, Date.now() - start);

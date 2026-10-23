@@ -50,9 +50,6 @@ export function retrieve(question: string, videos: ChannelVideo[], limit = 8, ch
   return chunks.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
-const excerpt = (v: ChannelVideo, chars: number) => (v.transcript ?? "").slice(0, chars).replace(/\s+/g, " ");
-const row = (v: ScoredVideo) => `- [${v.label.toUpperCase()}${v.ratio != null ? ` ${v.ratio}x` : ""}] "${v.title}" (${v.views ?? "?"} views, ${v.publish_date?.slice(0, 10) ?? "undated"}, id ${v.id})`;
-
 export function buildBriefPrompt(channelTitle: string, stats: ChannelStats) {
   return buildIntelligencePrompt(channelTitle, stats);
 }
