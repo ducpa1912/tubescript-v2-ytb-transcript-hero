@@ -11,6 +11,7 @@
 - [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
 
 ## Tasks
+- [ ] Reduce Decodo calls: YouTube-first fallback on blocks/missing data, one subtitle request for both origins, skip complete metadata; verify regression tests.
 - [x] Creator suite 1: Retention spike & drop deconstructor in the Watch tab + hook/retention technique playbook.
 - [x] Creator suite 3: Channel Brain — channel analysis writes channel.md (topics, viewer profile, hits/flops, voice, trends, gaps), hits & flops list, chat with the whole library.
 - [x] Creator suite 2: Script lab — Outlier Script Blueprint + 3 modes (replicate video/topic, clone creator style, fill trend gap from own channel.md).
