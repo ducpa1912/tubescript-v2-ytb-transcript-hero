@@ -11,6 +11,13 @@
 - [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
 
 ## Tasks
+- [x] Creator suite 1: Retention spike & drop deconstructor in the Watch tab + hook/retention technique playbook.
+- [x] Creator suite 3: Channel Brain — channel analysis writes channel.md (topics, viewer profile, hits/flops, voice, trends, gaps), hits & flops list, chat with the whole library.
+- [x] Creator suite 2: Script lab — Outlier Script Blueprint + 3 modes (replicate video/topic, clone creator style, fill trend gap from own channel.md).
+- [ ] Verify Channel Brain, chat and Script lab signed-in in the app (preview hydration issue still blocks browser checks).
+- [ ] Decide pricing for channel analysis / chat / scripts (currently free, free AI models only).
+- [ ] Next 4: intent/approach search across every analysed transcript (meaning-based search, needs embeddings).
+- [ ] Next 5: "Hit vs. Flop" A/B audit — side-by-side comparison of a top outlier vs a bottom performer.
 - [x] Switch fresh caption extraction, retries and timestamp enrichment to Decodo directly; fix nested English tracks and window-event parsing.
 - [ ] Verify Decodo extraction through the app: local Extract button stays disabled after entering a URL because the preview does not hydrate.
 - [x] Build latest-only richer Watch moments, expandable categories, atomic refresh replacement and separate audiovisual presentation; preserve transcript data and existing unlocks. 37 focused regression checks passed.

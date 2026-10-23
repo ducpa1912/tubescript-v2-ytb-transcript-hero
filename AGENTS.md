@@ -44,3 +44,7 @@
 - Internal analysis_settings govern providers; no end-user settings UI. Read uses verified zero-cost models; Watch uses genuine video input and never Read output.
 - Browser jobs run three concurrent independent invocations with generation leases and a 100s provider budget. Cooldowns key provider:model; terminal denials stop retries.
 - Caption facts measure speech, not cuts/B-roll; replay heat is not retention.
+
+## Creator intelligence
+- Retention spikes/drops are computed client-side from cached replay heat in `retention.ts` (no extra AI call); always label it replay interest, not retention.
+- Channel Brain briefs (`channel_briefs`) and generated scripts are per-user and built only from that user's unlocked transcripts; channel-level AI uses the free-only `routeText` cascade so it can never cost money silently.
