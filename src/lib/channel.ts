@@ -10,7 +10,7 @@ export type ChannelStats = { count: number; medianViews: number; hits: number; f
 export function scoreChannel(videos: ChannelVideo[], now = Date.now()): ChannelStats {
   const views = videos.map((v) => v.views).filter((v): v is number => typeof v === "number" && v >= 0).sort((a, b) => a - b);
   const mid = Math.floor(views.length / 2);
-  const medianViews = !views.length ? 0 : views.length % 2 ? views[mid] : (views[mid - 1] + views[mid]) / 2;
+  const medianViews = !views.length ? 0 : views.length % 2 ? views[mid]! : (views[mid - 1]! + views[mid]!) / 2;
   const scored = videos.map((v): ScoredVideo => {
     if (v.views == null || !medianViews) return { ...v, ratio: null, label: "unknown" };
     const ratio = +(v.views / medianViews).toFixed(2);

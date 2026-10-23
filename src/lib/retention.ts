@@ -16,13 +16,13 @@ function median(values: number[]) {
   if (!values.length) return 0;
   const s = [...values].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 }
 
 export function detectRetention(heat: HeatMoment[], max = 5): { baseline: number; spikes: RetentionEvent[]; drops: RetentionEvent[] } {
   const points = [...heat].sort((a, b) => a.startMs - b.startMs);
   const baseline = median(points.map((p) => p.intensity));
-  const step = points.length > 1 ? (points[1].startMs - points[0].startMs) / 1000 : 0;
+  const step = points.length > 1 ? (points[1]!.startMs - points[0]!.startMs) / 1000 : 0;
   const spikes: RetentionEvent[] = [];
   points.forEach((p, i) => {
     const prev = points[i - 1]?.intensity ?? -1, next = points[i + 1]?.intensity ?? -1;
@@ -32,7 +32,7 @@ export function detectRetention(heat: HeatMoment[], max = 5): { baseline: number
   const drops: RetentionEvent[] = [];
   let run: { start: number; end: number; from: number; to: number } | null = null;
   for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i], b = points[i + 1];
+    const a = points[i]!, b = points[i + 1]!;
     if (b.intensity < a.intensity) run = run ? { ...run, end: b.startMs, to: b.intensity } : { start: a.startMs, end: b.startMs, from: a.intensity, to: b.intensity };
     else if (run) { if (run.from - run.to >= DROP_FALL) drops.push(toDrop(run)); run = null; }
   }
