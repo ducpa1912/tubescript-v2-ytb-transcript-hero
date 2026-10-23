@@ -13,7 +13,7 @@ export function RetentionDeconstructor({ heat, result, onSeek, durationS }: { he
     const events = deconstruct([...spikes, ...drops].sort((a, b) => a.startS - b.startS), result.moments);
     return { baseline, events, tips: retentionTips(events, result.moments) };
   }, [heat, result]);
-  const end = durationS || (heat.length ? heat[heat.length - 1].startMs / 1000 + 1 : 1);
+  const end = durationS || ((heat.at(-1)?.startMs ?? 0) / 1000 + 1);
 
   if (!heat.length) return <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
     YouTube shows no "most replayed" graph for this video yet (usually it needs more views), so spikes and drops can't be mapped. The technique checklist below still applies.

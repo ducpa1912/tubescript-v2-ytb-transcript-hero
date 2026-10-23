@@ -25,7 +25,7 @@ async function loadChannel(ctx: Ctx, id: string, withText: boolean) {
 }
 async function loadBrief(ctx: Ctx, id: string) {
   const { data } = await ctx.supabase.from("channel_briefs").select("*").eq("user_id", ctx.userId).eq("channel_id", id).maybeSingle();
-  return data as { markdown: string; stats: unknown; updated_at: string; video_count: number; model: string } | null;
+  return data as { markdown: string; stats: Record<string, number>; updated_at: string; video_count: number; model: string } | null;
 }
 async function admin() { return (await import("@/integrations/supabase/client.server")).supabaseAdmin; }
 async function log(userId: string, stage: string, route: string, outcome: string, detail: string, ms: number) {
