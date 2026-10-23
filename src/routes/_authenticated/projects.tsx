@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { Brain } from "lucide-react";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureProfile, getAccount } from "@/lib/account.functions";
@@ -40,6 +41,16 @@ function ProjectsPage() {
     ensureProfile().then(() => account.refetch()).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const brains = useQuery({
+    queryKey: ["channel-brains", projects.data?.map((p) => p.channel_id)],
+    enabled: !!projects.data?.length,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("channel_briefs").select("channel_id").in("channel_id", projects.data?.map((p) => p.channel_id) ?? []);
+      if (error) throw error;
+      return data.map((b) => b.channel_id);
+    },
+  });
 
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-4 py-10">
@@ -96,7 +107,7 @@ function ProjectsPage() {
                 {p.video_count} videos · updated {new Date(p.updated_at).toLocaleDateString()}
               </p>
             </div>
-            <Link to="/channel/$channelId" params={{ channelId: p.channel_id }} className="relative z-10 shrink-0 rounded-md border border-input px-3 py-1.5 text-xs text-foreground hover:bg-background">Channel Brain</Link>
+            {brains.data?.includes(p.channel_id) && <span title="Channel Brain available" aria-label="Channel Brain available" className="flex size-8 shrink-0 items-center justify-center rounded-full border border-primary/50 text-primary"><Brain className="size-4" /></span>}
           </div>
         ))}
       </div>

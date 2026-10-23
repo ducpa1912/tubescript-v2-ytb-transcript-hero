@@ -12,3 +12,4 @@
 ## Creator intelligence
 - Retention spikes/drops are computed client-side from cached replay heat in `retention.ts` (no extra AI call); always label it replay interest, not retention.
 - Channel Brain briefs (`channel_briefs`) and generated scripts are per-user and built only from that user's unlocked transcripts; channel-level AI uses the free-only `routeText` cascade so it can never cost money silently.
+- Channel intelligence stores validated structured JSON in the existing brief text column and renders deterministic Markdown for exports; legacy Markdown stays readable until a successful update. Quotes must match unlocked scripts, performance scores are descriptive publication-peer log-view anomalies, and sentiment/causal explanations remain evidence-labelled hypotheses.
