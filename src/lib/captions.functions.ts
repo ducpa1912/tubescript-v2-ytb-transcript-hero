@@ -22,7 +22,8 @@ export const addTimestamps = createServerFn({ method: "POST" })
     let { data: cached } = await db.from("video_caption_cues").select("cues").eq("video_id", data.videoId).maybeSingle();
     if (!cached) {
       const yt = await import("./youtube.server");
-      const result = await yt.extractVideo(data.videoId);
+      const { data: meta } = await db.from("videos").select("title,views,duration_seconds,publish_date").eq("id", data.videoId).maybeSingle();
+      const result = await yt.extractVideo(data.videoId, meta ? { title: meta.title, views: meta.views, durationSeconds: meta.duration_seconds, publishDate: meta.publish_date } : undefined);
       const cues = normalizeCues(result.cues);
       if (!cues.length) throw new Error("Timestamps are unavailable. No allowance was spent.");
       const { error: saveError } = await db.from("video_caption_cues").upsert({ video_id: data.videoId, cues }, { onConflict: "video_id", ignoreDuplicates: true });

@@ -11,6 +11,8 @@
 - [x] Phase 2: two-stage pipeline (optional Data API listing → cached/keyless transcript extraction)
 
 ## Tasks
+- [x] Reduce Decodo calls: YouTube-first fallback on blocks/missing data, skip complete metadata, use one subtitle request when the English origin is known; 29 regression checks passed.
+- [ ] Consolidate unknown subtitle origins into one request: blocked by Decodo's documented one-origin contract; preserve creator-first fallback meanwhile.
 - [x] Creator suite 1: Retention spike & drop deconstructor in the Watch tab + hook/retention technique playbook.
 - [x] Creator suite 3: Channel Brain — channel analysis writes channel.md (topics, viewer profile, hits/flops, voice, trends, gaps), hits & flops list, chat with the whole library.
 - [x] Creator suite 2: Script lab — Outlier Script Blueprint + 3 modes (replicate video/topic, clone creator style, fill trend gap from own channel.md).
@@ -18,7 +20,7 @@
 - [ ] Decide pricing for channel analysis / chat / scripts (currently free, free AI models only).
 - [ ] Next 4: intent/approach search across every analysed transcript (meaning-based search, needs embeddings).
 - [ ] Next 5: "Hit vs. Flop" A/B audit — side-by-side comparison of a top outlier vs a bottom performer.
-- [x] Switch fresh caption extraction, retries and timestamp enrichment to Decodo directly; fix nested English tracks and window-event parsing.
+- [x] Parse nested English Decodo tracks and window events; fresh captions, retries and timestamp enrichment now use YouTube-first with Decodo fallback.
 - [ ] Verify Decodo extraction through the app: local Extract button stays disabled after entering a URL because the preview does not hydrate.
 - [x] Build latest-only richer Watch moments, expandable categories, atomic refresh replacement and separate audiovisual presentation; preserve transcript data and existing unlocks. 37 focused regression checks passed.
 - [ ] Verify latest Watch refresh end-to-end: signed-in browser attempt still renders a blank page while local client requests stall; no paid comparison runs created.

@@ -7,7 +7,7 @@ import { collectionIdPattern } from "@/lib/collections";
 import { normalizeCues, type Cue } from "@/lib/captions";
 import { saveDiscoveredVideos } from "@/lib/video-discovery";
 
-const BATCH = 9; // videos per call; 3 at a time x 2 Decodo calls = 6 outbound (Worker cap)
+const BATCH = 9; // 3 videos at a time, at most 2 simultaneous provider requests each.
 const MAX_ATTEMPTS = 3;
 const FREE_DAILY = 10; // registered users: 10 video transcripts per day
 
@@ -85,7 +85,7 @@ export const startScan = createServerFn({ method: "POST" })
     const userId = await callerUserId();
 
     if (parsed.kind === "video") {
-      const { data: saved } = await db.from("videos").select("id,title,views,duration_seconds,publish_date,channel_id,position").eq("id", parsed.videoId).maybeSingle();
+      const { data: saved } = await db.from("videos").select("id,title,views,views_updated_at,duration_seconds,publish_date,channel_id,position").eq("id", parsed.videoId).maybeSingle();
       const { data: cached } = await db.from("video_transcripts").select("transcript").eq("video_id", parsed.videoId).maybeSingle();
       let transcript = cached?.transcript ?? null;
       if (cached?.transcript) {
@@ -97,7 +97,7 @@ export const startScan = createServerFn({ method: "POST" })
       let freshCues: Cue[] = [];
       const t0 = Date.now();
       try {
-        const r = await yt.extractVideo(parsed.videoId, saved?.title);
+        const r = await yt.extractVideo(parsed.videoId, saved ? { title: saved.title, views: saved.views, durationSeconds: saved.duration_seconds, publishDate: saved.publish_date } : undefined);
         await writeLogs(db, [{ user_id: userId, video_id: parsed.videoId, stage: "single_video", route: r.route ?? "decodo_subtitles", outcome: r.status, detail: r.statusDetail ?? (r.captionLang ? `lang ${r.captionLang}` : null), duration_ms: Date.now() - t0 }]);
         const row = latestMeta(toRow(r), saved);
         const { error } = await db.from("videos").upsert({ ...row, channel_id: saved?.channel_id ?? null, position: saved?.position ?? 0 });
@@ -296,7 +296,7 @@ export const processBatch = createServerFn({ method: "POST" })
       }
       const t0 = Date.now();
       try {
-        const r = await yt.extractVideo(v.id, v.title);
+        const r = await yt.extractVideo(v.id, { title: v.title, views: v.views, durationSeconds: v.duration_seconds, publishDate: v.publish_date });
         logs.push({ ...base, video_id: v.id, route: r.route ?? "decodo_subtitles", outcome: r.status, detail: r.statusDetail ?? (r.captionLang ? `lang ${r.captionLang}` : null), duration_ms: Date.now() - t0 });
         if (r.transcript) await saveTranscript(db, r.id, r.transcript, r.captionLang, r.cues);
         await db.from("videos").update({ ...latestMeta(toRow(r), v), attempts: v.attempts + 1 }).eq("id", v.id);
@@ -342,7 +342,7 @@ function toRow(r: import("./youtube.server").VideoResult) {
     title: r.title,
     publish_date: r.publishDate,
     views: r.views,
-    views_updated_at: r.views != null ? new Date().toISOString() : null as string | null,
+    ...(r.viewsFetched ? { views_updated_at: new Date().toISOString() } : {}),
     duration_seconds: r.durationSeconds,
     status: r.status,
     status_detail: r.status === "ok" ? null : r.statusDetail,
@@ -361,7 +361,7 @@ function latestMeta<T extends ReturnType<typeof toRow>>(row: T, saved: Saved | n
     ...row,
     title: row.title || saved.title,
     views: row.views ?? saved.views,
-    views_updated_at: row.views != null ? row.views_updated_at : saved.views_updated_at ?? null,
+    ...(!row.views_updated_at && saved.views_updated_at ? { views_updated_at: saved.views_updated_at } : {}),
     duration_seconds: row.duration_seconds ?? saved.duration_seconds,
     publish_date: row.publish_date ?? saved.publish_date,
   };
