@@ -21,6 +21,7 @@ describe("publication-peer performance", () => {
   it("never flags a recent video as an underperformer", () => {
     const recent = { id: "recent", title: "Recent", views: 1, publish_date: "2026-10-22", duration_seconds: 600 };
     expect(scoreChannel([recent, ...videos], now).videos[0]?.performance).toBe("new");
+    expect(scoreChannel([{ ...recent, views: 1000000 }, ...videos], now).videos[0]?.label).toBe("new");
   });
   it("requires eight peers and nonzero variance", () => {
     expect(scoreChannel(videos.slice(0, 8), now).videos[0]?.peerZ).toBeNull();

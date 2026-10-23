@@ -9,17 +9,23 @@ type Ctx = { supabase: any; userId: string };
 
 /** Loads channel videos plus the transcripts this user has unlocked (RLS-protected read). */
 async function loadChannel(ctx: Ctx, id: string, withText: boolean) {
-  const { data: videos, error } = await ctx.supabase.from("videos").select("id, title, views, publish_date, duration_seconds").eq("channel_id", id).order("publish_date", { ascending: false }).limit(500);
-  if (error) throw new Error("Could not load channel videos.");
-  const list = (videos ?? []) as ChannelVideo[];
+  const list: ChannelVideo[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data: videos, error } = await ctx.supabase.from("videos").select("id, title, views, publish_date, duration_seconds").eq("channel_id", id).order("publish_date", { ascending: false }).order("id").range(offset, offset + 499);
+    if (error) throw new Error("Could not load channel videos.");
+    list.push(...(videos ?? []) as ChannelVideo[]);
+    if (!videos || videos.length < 500) break;
+  }
   if (!withText || !list.length) return list;
   const ids = list.map((v) => v.id);
   const text = new Map<string, string>();
   for (let i = 0; i < ids.length; i += 100) {
-    const { data: unlocks } = await ctx.supabase.from("user_video_unlocks").select("video_id").eq("user_id", ctx.userId).in("video_id", ids.slice(i, i + 100));
+    const { data: unlocks, error: unlockError } = await ctx.supabase.from("user_video_unlocks").select("video_id").eq("user_id", ctx.userId).in("video_id", ids.slice(i, i + 100));
+    if (unlockError) throw new Error("Could not verify your unlocked channel transcripts.");
     const owned = (unlocks ?? []).map((u: { video_id: string }) => u.video_id);
     if (!owned.length) continue;
-    const { data: rows } = await ctx.supabase.from("video_transcripts").select("video_id, transcript").in("video_id", owned);
+    const { data: rows, error: textError } = await ctx.supabase.from("video_transcripts").select("video_id, transcript").in("video_id", owned);
+    if (textError) throw new Error("Could not load your channel scripts. Previous analysis was kept.");
     for (const r of rows ?? []) text.set(r.video_id, r.transcript);
   }
   return list.map((v) => ({ ...v, transcript: text.get(v.id) }));
@@ -65,7 +71,7 @@ export const generateChannelBrief = createServerFn({ method: "POST" }).middlewar
         stats: { medianViews: stats.medianViews, hits: stats.hits, flops: stats.flops, count: stats.count }, updated_at: new Date().toISOString() });
       if (saveError) throw new Error("Could not save channel analysis; your previous analysis was kept.");
       await log(ctx.userId, "channel_brief", out.model, "success", `${withText} transcripts`, Date.now() - start);
-      return { markdown: out.text };
+      return { markdown: JSON.stringify(dossier) };
     } catch (e) {
       await log(ctx.userId, "channel_brief", "openrouter", "failed", e instanceof Error ? e.message : "failed", Date.now() - start);
       throw e;

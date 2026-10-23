@@ -25,7 +25,7 @@ export function scoreChannel(videos: ChannelVideo[], now = Date.now()): ChannelS
     const extra = { peerZ, peerCount: peers.length, ageDays, performance } as const;
     if (v.views == null || v.views < 0 || !medianViews) return { ...v, ...extra, ratio: null, label: "unknown" };
     const ratio = +(v.views / medianViews).toFixed(2);
-    const label = ratio >= HIT_MULTIPLIER ? "hit" : ageDays != null && ageDays < MIN_AGE_DAYS ? "new" : ratio <= FLOP_MULTIPLIER ? "flop" : "baseline";
+    const label = ageDays != null && ageDays < MIN_AGE_DAYS ? "new" : ratio >= HIT_MULTIPLIER ? "hit" : ratio <= FLOP_MULTIPLIER ? "flop" : "baseline";
     return { ...v, ...extra, ratio, label };
   });
   return { count: videos.length, medianViews, hits: scored.filter((v) => v.label === "hit").length, flops: scored.filter((v) => v.label === "flop").length, videos: scored };

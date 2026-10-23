@@ -99,7 +99,7 @@ function Chat({ channelId }: { channelId: string }) {
 }
 
 type ScriptRow = { id: string; mode: string; input: { topic?: string }; output: string; created_at: string };
-function ScriptLab({ channelId, videos, scripts, onSaved }: { channelId: string; videos: { id: string; title: string; label: string; ratio: number | null; hasTranscript: boolean }[]; scripts: ScriptRow[]; onSaved: () => void }) {
+function ScriptLab({ channelId, videos, scripts, onSaved }: { channelId: string; videos: { id: string; title: string; label: string; ratio: number | null; performance: string; hasTranscript: boolean }[]; scripts: ScriptRow[]; onSaved: () => void }) {
   const run = useServerFn(generateScript);
   const [mode, setMode] = useState<"replicate" | "style" | "gap">("replicate");
   const [topic, setTopic] = useState("");
