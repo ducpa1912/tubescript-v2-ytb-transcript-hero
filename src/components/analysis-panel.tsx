@@ -8,6 +8,7 @@ import { analysisResultSchema, type AnalysisTier, type Segment } from "@/lib/ana
 import { download, formatTimestamp } from "@/lib/export";
 import { watchResultSchema } from "@/lib/watch";
 import { WatchEvidence } from "./watch-evidence";
+import { RetentionDeconstructor } from "./retention-deconstructor";
 
 export function AnalysisQueueControls({ videoIds, onDelivered, tier, refreshWatch = false }: { videoIds: string[]; onDelivered?: () => void; tier?: AnalysisTier | undefined; refreshWatch?: boolean }) {
   const enqueue = useServerFn(enqueueAnalyses), list = useServerFn(listAnalysisJobs), process = useServerFn(processAnalysisJob), preferences = useServerFn(getAnalysisSettings);
@@ -96,6 +97,7 @@ export function AnalysisPanel({ videoId, onSeek, tier }: { videoId: string; onSe
     {activeTier === "watch" && analysis?.watch_format === 0 && <p className="border-l-2 border-warning pl-3 text-sm text-muted-foreground">Earlier Watch output. A successful refresh replaces it with synchronized audiovisual moments.</p>}
     {activeTier === "watch" && watch.success ? <>
       <div className="flex justify-end"><Button size="sm" variant="ghost" onClick={() => download(`${videoId}-watch-analysis.json`, JSON.stringify(analysis, null, 2), "application/json")}><Download />JSON</Button></div>
+      <RetentionDeconstructor heat={(stored as { heatMoments?: { startMs: number; intensity: number }[] })?.heatMoments ?? []} result={watch.data} onSeek={onSeek} />
       <WatchEvidence result={watch.data} onSeek={onSeek} />
     </> : result ? <div className="space-y-4 text-sm">
       <div className="flex justify-end"><Button size="sm" variant="ghost" onClick={() => download(`${videoId}-${activeTier}-analysis.json`, JSON.stringify({ ...analysis, result }, null, 2), "application/json")}><Download />JSON</Button></div>
