@@ -57,6 +57,13 @@
       "when": 1792572604932,
       "tag": "0007_long_analysis_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792714709525,
+      "tag": "0008_channel_brain",
+      "breakpoints": true
     }
   ]
 }

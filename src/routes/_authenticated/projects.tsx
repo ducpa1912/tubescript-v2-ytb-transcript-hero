@@ -80,11 +80,11 @@ function ProjectsPage() {
 
       <div className="mt-6 grid gap-3">
         {projects.data?.map((p) => (
-          <a
+          <div
             key={p.id}
-            href={`/?channel=${encodeURIComponent(p.channel_id)}`}
-            className="flex items-center gap-4 rounded-lg border border-input p-4 transition-colors hover:bg-accent"
+            className="relative flex items-center gap-4 rounded-lg border border-input p-4 transition-colors hover:bg-accent"
           >
+            <a href={`/?channel=${encodeURIComponent(p.channel_id)}`} className="absolute inset-0" aria-label={`Open ${p.channel_title || p.channel_id}`} />
             {p.thumbnail && (
               <img src={p.thumbnail} alt="" className="h-10 w-10 rounded-full object-cover" />
             )}
@@ -96,7 +96,8 @@ function ProjectsPage() {
                 {p.video_count} videos · updated {new Date(p.updated_at).toLocaleDateString()}
               </p>
             </div>
-          </a>
+            <Link to="/channel/$channelId" params={{ channelId: p.channel_id }} className="relative z-10 shrink-0 rounded-md border border-input px-3 py-1.5 text-xs text-foreground hover:bg-background">Channel Brain</Link>
+          </div>
         ))}
       </div>
     </div>

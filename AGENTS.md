@@ -15,7 +15,7 @@
 - `videos`/`channels` hold public metadata only; transcript text lives once per video in `video_transcripts`, readable only via a `user_video_unlocks` row — so a video is extracted once and shared, while access stays per-user. All writes go through server functions using the admin client.
 - Previous metadata is archived to `video_metadata_history` by a DB trigger on change — the UI shows only the latest values.
 - Discovery duplicate-ignores new inserts and metadata-only patches existing rows; never insert partial existing rows or reset extraction state.
-- Reasoning logs for each workstream live in `/logs/*.md`.
+- Reasoning logs live in `/logs/*.md`.
 
 ## V2 auth and monetization
 - Single-video scans stay public; channel crawls are server-gated in `startScan` (bearer check), never by UI alone — the RPC endpoint is directly callable.
@@ -35,12 +35,6 @@
 - Timed captions live in immutable video_caption_cues with separate per-user caption unlocks; legacy timestamp refreshes never update transcript text and are charged atomically only after cues exist.
 - Playlist IDs use the PL: prefix in saved collections; collection_videos owns ordered membership so one global video is never reassigned from its channel by playlist discovery.
 - Incremental channel discovery stops on a fully known page rather than a timestamp cutoff, because undated or backdated uploads must not be missed; count persisted membership, not only returned pages.
-- Caption parsing and subtitle serialization live in client-safe captions.ts; authenticated timestamp enrichment lives in captions.functions.ts.
 
-## Video analysis
-- Watch atomically replaces its current cache and child moments under a generation token; preserve unlocks and wallet-lock delivery to prevent repeat charges. Transcript text/cues never change.
-- Old Watch output remains a string until successful refresh replaces it. Format markers describe shape, not prompt history; only validated moments publish, diagnostics stay owner-only.
-- Client-safe watch.ts validates moments; watch-evidence.tsx separates picture, effects and voice from wording tone.
-- Internal analysis_settings govern providers; no end-user settings UI. Read uses verified zero-cost models; Watch uses genuine video input and never Read output.
-- Browser jobs run three concurrent independent invocations with generation leases and a 100s provider budget. Cooldowns key provider:model; terminal denials stop retries.
-- Caption facts measure speech, not cuts/B-roll; replay heat is not retention.
+## Subdirectories
+- `src/lib/` has its own `AGENTS.md` (video analysis, creator intelligence); read it before changing files there.
