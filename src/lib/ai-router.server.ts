@@ -1,4 +1,4 @@
-import { computeVideoFacts, isFreeModel, validateAnalysis, type AnalysisSettings, type AnalysisTier, type Segment, type HeatMoment } from "./analysis";
+import { DEFAULT_ANALYSIS_SETTINGS, computeVideoFacts, isFreeModel, validateAnalysis, type AnalysisSettings, type AnalysisTier, type Segment, type HeatMoment } from "./analysis";
 import { validateWatch, type WatchCategory } from "./watch";
 
 type CatalogModel = { id: string; pricing?: { prompt?: string; completion?: string }; architecture?: { input_modalities?: string[] } };
@@ -156,7 +156,7 @@ export async function routeAnalysis(input: AnalysisInput, log: (route: Route, ou
 }
 /** Free-only text generation for channel-level features (brief, chat, scripts). Same free Read cascade, never paid. */
 export async function routeText(prompt: string, opts: { json?: boolean; maxTokens?: number; timeoutMs?: number } = {}) {
-  const routes = await availableRoutes({ watchModel: "google/gemini-3.1-flash-lite", autoRollup: false, readPaidFallback: false, batchSize: 5 } as unknown as AnalysisSettings, "read");
+  const routes = await availableRoutes(DEFAULT_ANALYSIS_SETTINGS, "read");
   if (!routes.length) throw new Error("No free AI model is available right now. Try again shortly.");
   if (prompt.length > 450000) throw new Error("Too much material for one request.");
   const key = process.env["OPENROUTER_API_KEY"];
