@@ -388,10 +388,13 @@ function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlock
         </div>
         <div className="relative min-w-48 flex-1">
           <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search titles and transcripts"
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={mode === "intent" ? "Search by intent, approach, hook or angle (Read analyses)" : "Search titles and transcripts"}
             aria-label="Search" className="w-full rounded-lg border bg-surface py-1.5 pr-8 pl-8 text-sm outline-none focus:border-primary" />
           {q && <button onClick={() => setQ("")} aria-label="Clear search" className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground"><X className="size-4" /></button>}
         </div>
+        {signedIn && <div className="flex gap-1" role="tablist" aria-label="Search mode">
+          {(["text", "intent"] as const).map((m) => <Button key={m} role="tab" aria-selected={mode === m} size="sm" variant={mode === m ? "secondary" : "ghost"} onClick={() => setMode(m)}>{m === "text" ? "Words" : "Intent"}</Button>)}
+        </div>}
         <div className="flex gap-1">
           {(["csv", "json", "md"] as const).map((f) => (
             <Button key={f} variant="secondary" size="sm" onClick={() => exp(f)} disabled={!ready} className="font-mono uppercase">
@@ -406,6 +409,7 @@ function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlock
         <span className="text-xs text-muted-foreground">Free allowance first, then 1 credit each</span>
       </div>}
       {unlockNotice && <p role="status" className="border-b px-4 py-2 text-sm text-muted-foreground">{unlockNotice}</p>}
+      {mode === "intent" && q && <p className="border-b px-4 py-2 text-xs text-muted-foreground">{intents.isLoading ? "Loading analyses…" : `Searching ${intents.data?.size ?? 0} Read analyses — videos without one are not searched.`}</p>}
       {signedIn && view.some((r) => r.transcript) && <div className="border-b px-4 py-3"><AnalysisQueueControls videoIds={view.filter((r) => r.transcript).map((r) => r.id)} /></div>}
       <div className="flex flex-wrap gap-4 border-b px-4 py-2 font-mono text-xs text-muted-foreground">
         <span>{view.length.toLocaleString()} shown</span>
@@ -437,7 +441,7 @@ function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlock
                 style={{ transform: `translateY(${vi.start}px)` }}
               >
                 <span className="font-mono text-xs text-muted-foreground">{r.position + 1}</span>
-                <span className="truncate">{r.title || r.id}</span>
+                <span className="min-w-0"><span className="block truncate">{r.title || r.id}</span>{mode === "intent" && snippets.get(r.id) && <span className="block truncate text-xs text-muted-foreground italic">{snippets.get(r.id)}</span>}</span>
                 <span className={`font-mono text-xs text-muted-foreground `}>{r.publish_date?.slice(0, 10) ?? "—"}</span>
                 <span className={`text-right font-mono text-xs `}>{r.views != null ? compact(r.views) : "—"}</span>
                 <span className={`text-right font-mono text-xs `}>{fmtDuration(r.duration_seconds)}</span>
