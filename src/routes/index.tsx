@@ -14,6 +14,7 @@ import { ArrowDown, ArrowUp, Download, Loader2, Search, X, RotateCw } from "luci
 import { supabase } from "@/integrations/supabase/client";
 import { startScan, processBatch } from "@/lib/scan.functions";
 import { getAccount } from "@/lib/account.functions";
+import { intentText, matchIntent } from "@/lib/intent-search";
 import { STATUS_LABEL, download, fmtDuration, toCSV, toJSON, toMarkdown, type Row } from "@/lib/export";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
