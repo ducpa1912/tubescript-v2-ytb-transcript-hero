@@ -298,6 +298,7 @@ const STATUS_STYLE: Record<string, string> = {
 
 function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlocked, onRetried }: { rows: DbRow[]; heading: string; ready: boolean; locked?: boolean; signedIn: boolean; onUnlocked: () => Promise<void>; onRetried: (row: DbRow) => void }) {
   const [q, setQ] = useState("");
+  const [mode, setMode] = useState<"text" | "intent">("text");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "position", dir: 1 });
   const [open, setOpen] = useState<DbRow | null>(null);
   const parentRef = useRef<HTMLDivElement>(null);
@@ -321,11 +322,25 @@ function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlock
     finally { setUnlocking(false); }
   }
 
+  const analysedIds = useMemo(() => rows.filter((r) => r.transcript).map((r) => r.id), [rows]);
+  const intents = useQuery({
+    queryKey: ["intent-index", analysedIds.length, analysedIds[0]],
+    enabled: signedIn && mode === "intent" && analysedIds.length > 0,
+    queryFn: async () => {
+      const map = new Map<string, string>();
+      for (let i = 0; i < analysedIds.length; i += 100) {
+        const { data } = await supabase.from("video_analyses").select("video_id, result").eq("tier", "read").in("video_id", analysedIds.slice(i, i + 100));
+        for (const a of data ?? []) map.set(a.video_id, intentText(a.result));
+      }
+      return map;
+    },
+  });
+  const snippets = useMemo(() => new Map<string, string>(), [q, mode, intents.data]);
   const view = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const f = needle
-      ? rows.filter((r) => r.title.toLowerCase().includes(needle) || r.transcript?.toLowerCase().includes(needle))
-      : rows;
+    const f = !needle ? rows : mode === "intent"
+      ? rows.filter((r) => { const s = matchIntent(intents.data?.get(r.id) ?? "", needle); if (s) snippets.set(r.id, s); return !!s; })
+      : rows.filter((r) => r.title.toLowerCase().includes(needle) || r.transcript?.toLowerCase().includes(needle));
     const { key, dir } = sort;
     return [...f].sort((a, b) => {
       const x = a[key] as any, y = b[key] as any;
@@ -334,7 +349,7 @@ function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlock
       if (y == null) return -1;
       return (typeof x === "string" ? x.localeCompare(y) : x - y) * dir;
     });
-  }, [rows, q, sort]);
+  }, [rows, q, sort, mode, intents.data, snippets]);
 
   const virt = useVirtualizer({ count: view.length, getScrollElement: () => parentRef.current, estimateSize: () => 52, overscan: 12 });
   const lockedIds = locked ? view.filter((r) => r.status === "ok" && !r.transcript).map((r) => r.id) : [];
