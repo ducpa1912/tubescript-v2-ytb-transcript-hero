@@ -28,32 +28,28 @@ async function catalog(provider: keyof typeof bases) {
   catalogs.set(provider, { expires: Date.now() + 60000, models });
   return models;
 }
-export async function availableRoutes(settings: AnalysisSettings, tier: AnalysisTier): Promise<Route[]> {
-  // OpenCode blocks its free models outside its own harness, so Read is OpenRouter-only.
-  // Watch prefers OpenCode Zen (paid credits) with OpenRouter as fallback.
-  const providers = (tier === "read" ? ["openrouter"] : ["opencode-zen", "openrouter"]) as (keyof typeof bases)[];
+// Text (Read + Channel Brain): OpenCode Go Muse Spark 1.3, then OpenRouter DeepSeek V4.1 Flash.
+// Watch: OpenRouter Gemini 3.1 Flash Lite, then OpenCode Zen Gemini 3.5 Flash Lite.
+export const TEXT_ROUTES = [
+  { provider: "opencode-go", model: "muse-spark-1.3" },
+  { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash-1017" },
+] as const;
+export const WATCH_ROUTES = [
+  { provider: "openrouter", model: "google/gemini-3.1-flash-lite" },
+  { provider: "opencode-zen", model: "gemini-3.5-flash-lite" },
+] as const;
+export async function availableRoutes(_settings: AnalysisSettings, tier: AnalysisTier): Promise<Route[]> {
   const routes: Route[] = [];
-  for (const provider of providers) {
+  for (const { provider, model } of tier === "read" ? TEXT_ROUTES : WATCH_ROUTES) {
     if (!(provider === "openrouter" ? process.env["OPENROUTER_API_KEY"] : process.env["OPENCODE_API_KEY"])) continue;
-    let models: CatalogModel[];
-    try { models = await catalog(provider); } catch { continue; }
-    if (tier === "read") {
-      for (const id of FREE_READ_MODELS) {
-        const model = models.find((m) => m.id === id);
-        if (model && isFreeModel(model)) routes.push({ provider, model: id, endpoint: `${bases[provider]}/v1/chat/completions` });
-      }
-    } else {
-      const ids = provider === "opencode-zen" ? ["google/gemini-3.5-flash-lite"]
-        : [settings.watchModel, ...(settings.autoRollup && settings.watchModel !== "google/gemini-3.5-flash-lite" ? ["google/gemini-3.5-flash-lite"] : [])];
-      for (const id of ids) {
-        const modelId = provider === "openrouter" ? id : id.replace("google/", "");
-        const model = models.find((m) => m.id === modelId);
-        if (model && (provider !== "openrouter" || model.architecture?.input_modalities?.includes("video"))) routes.push({ provider, model: modelId,
-          endpoint: provider === "openrouter" ? `${bases[provider]}/v1/chat/completions` : `${bases[provider]}/google/v1beta/models/${modelId}:generateContent`, nativeGoogle: provider !== "openrouter" });
-      }
-    }
+    // Skip only when the provider catalog loads and clearly lacks the model.
+    let models: CatalogModel[] = [];
+    try { models = await catalog(provider); } catch { /* catalog unavailable: still try */ }
+    if (models.length && !models.some((m) => m.id === model)) continue;
+    const native = provider === "opencode-zen";
+    routes.push({ provider, model, nativeGoogle: native || undefined,
+      endpoint: native ? `${bases[provider]}/google/v1beta/models/${model}:generateContent` : `${bases[provider]}/v1/chat/completions` });
   }
-  // Preserve provider priority: OpenCode Zen first, then configured OpenRouter fallback.
   return routes;
 }
 export type AnalysisInput = { tier: AnalysisTier; videoId: string; title: string; segments: Segment[]; settings: AnalysisSettings; durationS?: number; heatMoments?: HeatMoment[]; chapters?: { startS: number; title: string }[]; categories?: WatchCategory[] };
@@ -157,9 +153,8 @@ export async function routeAnalysis(input: AnalysisInput, log: (route: Route, ou
 /** Free-only text generation for channel-level features (brief, chat, scripts). Same free Read cascade, never paid. */
 export async function routeText(prompt: string, opts: { json?: boolean; maxTokens?: number; timeoutMs?: number } = {}) {
   const routes = await availableRoutes(DEFAULT_ANALYSIS_SETTINGS, "read");
-  if (!routes.length) throw new Error("No free AI model is available right now. Try again shortly.");
+  if (!routes.length) throw new Error("No AI model is available right now. Try again shortly.");
   if (prompt.length > 450000) throw new Error("Too much material for one request.");
-  const key = process.env["OPENROUTER_API_KEY"];
   const errors: string[] = [];
   const deadline = Date.now() + (opts.timeoutMs ?? 300000);
   for (const route of routes) {
@@ -167,6 +162,7 @@ export async function routeText(prompt: string, opts: { json?: boolean; maxToken
     if ((cooldowns.get(routeKey) ?? 0) > Date.now()) continue;
     const remaining = deadline - Date.now();
     if (remaining < 5000) break;
+    const key = route.provider === "openrouter" ? process.env["OPENROUTER_API_KEY"] : process.env["OPENCODE_API_KEY"];
     try {
       const response = await fetch(route.endpoint, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "Tubescript" },
         body: JSON.stringify({ model: route.model, max_tokens: opts.maxTokens ?? 6000, reasoning: { effort: "medium" }, ...(opts.json ? { response_format: { type: "json_object" } } : {}), messages: [{ role: "user", content: prompt }] }),
