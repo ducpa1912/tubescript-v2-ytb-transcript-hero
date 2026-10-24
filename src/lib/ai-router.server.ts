@@ -27,12 +27,14 @@ async function catalog(provider: keyof typeof bases) {
   catalogs.set(provider, { expires: Date.now() + 60000, models });
   return models;
 }
-// Text (Read + Channel Brain): OpenCode Go Muse Spark 1.3, then OpenRouter DeepSeek V4.1 Flash.
+// Text (Read + Channel Brain): OpenCode Go DeepSeek V4.1 Flash (paid Go plan, no session header), then OpenRouter DeepSeek.
 // Watch: OpenRouter Gemini 3.1 Flash Lite, then OpenCode Zen Gemini 3.5 Flash Lite.
 export const TEXT_ROUTES = [
-  { provider: "opencode-go", model: "muse-spark-1.3" },
+  { provider: "opencode-go", model: "deepseek-v4.1-flash" },
   { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash-1017" },
 ] as const;
+/** Paid routes: generous output budget so large JSON never truncates; reasoning stays medium for speed. */
+export const MAX_OUTPUT_TOKENS = 32000;
 export const WATCH_ROUTES = [
   { provider: "openrouter", model: "google/gemini-3.1-flash-lite" },
   { provider: "opencode-zen", model: "gemini-3.5-flash-lite" },

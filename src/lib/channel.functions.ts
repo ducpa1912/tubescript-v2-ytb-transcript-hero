@@ -30,6 +30,19 @@ async function loadChannel(ctx: Ctx, id: string, withText: boolean) {
   }
   return list.map((v) => ({ ...v, transcript: text.get(v.id) }));
 }
+/** Channel Brain needs every captioned video unlocked AND Read-analysed by this user. */
+async function readiness(ctx: Ctx, id: string, videos: { id: string; transcript?: string | undefined }[]) {
+  const { data: ok } = await ctx.supabase.from("videos").select("id").eq("channel_id", id).eq("status", "ok").limit(5000);
+  const captioned = new Set<string>((ok ?? []).map((r: { id: string }) => r.id));
+  const unlocked = videos.filter((v) => v.transcript && captioned.has(v.id)).map((v) => v.id);
+  const read = new Set<string>();
+  for (let i = 0; i < unlocked.length; i += 100) {
+    const { data } = await ctx.supabase.from("video_analyses").select("video_id").eq("tier", "read").in("video_id", unlocked.slice(i, i + 100));
+    for (const r of data ?? []) read.add(r.video_id);
+  }
+  const missingRead = unlocked.filter((v) => !read.has(v));
+  return { captioned: captioned.size, unlocked: unlocked.length, analysed: read.size, missingRead, ready: captioned.size >= 3 && unlocked.length >= captioned.size && read.size >= captioned.size };
+}
 async function loadBrief(ctx: Ctx, id: string) {
   const { data } = await ctx.supabase.from("channel_briefs").select("*").eq("user_id", ctx.userId).eq("channel_id", id).maybeSingle();
   return data as { markdown: string; stats: Record<string, number>; updated_at: string; video_count: number; model: string } | null;
@@ -51,6 +64,7 @@ export const getChannelBrain = createServerFn({ method: "GET" }).middleware([req
     return {
       channelTitle: (project.data?.channel_title as string) || data.channelId,
       brief, dossier: brief ? parseChannelDossier(brief.markdown) : null, scripts: scripts.data ?? [],
+      readiness: await readiness(ctx, data.channelId, videos),
       stats: { ...stats, videos: stats.videos.map(({ transcript, ...v }) => ({ ...v, hasTranscript: Boolean(transcript) })) },
     };
   });
@@ -60,12 +74,13 @@ export const generateChannelBrief = createServerFn({ method: "POST" }).middlewar
     const ctx = context as unknown as Ctx;
     const [videos, project] = await Promise.all([loadChannel(ctx, data.channelId, true), ctx.supabase.from("projects").select("channel_title").eq("user_id", ctx.userId).eq("channel_id", data.channelId).maybeSingle()]);
     const withText = videos.filter((v) => v.transcript).length;
-    if (withText < 3) throw new Error("Unlock at least 3 transcripts from this channel first (crawl the channel).");
+    const ready = await readiness(ctx, data.channelId, videos);
+    if (!ready.ready) throw new Error(`Channel Brain needs every captioned video unlocked and Read-analysed first (${ready.unlocked}/${ready.captioned} transcripts, ${ready.analysed}/${ready.captioned} Read analyses).`);
     const stats = scoreChannel(videos);
     const { routeText } = await import("./ai-router.server");
     const start = Date.now();
     try {
-      const out = await routeText(buildBriefPrompt((project.data?.channel_title as string) || data.channelId, stats), { json: true, maxTokens: 8000 });
+      const out = await routeText(buildBriefPrompt((project.data?.channel_title as string) || data.channelId, stats), { json: true, maxTokens: 32000 });
       const dossier = validateChannelDossier(JSON.parse(out.text), stats.videos);
       const { error: saveError } = await (await admin()).from("channel_briefs").upsert({ user_id: ctx.userId, channel_id: data.channelId, markdown: JSON.stringify(dossier), model: out.model, video_count: withText,
         stats: { medianViews: stats.medianViews, hits: stats.hits, flops: stats.flops, count: stats.count }, updated_at: new Date().toISOString() });
