@@ -64,6 +64,13 @@
       "when": 1792714709525,
       "tag": "0008_channel_brain",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792816754997,
+      "tag": "0009_watch_uses_daily_free_first",
+      "breakpoints": true
     }
   ]
 }
