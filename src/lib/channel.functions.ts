@@ -91,7 +91,8 @@ export const generateChannelBrief = createServerFn({ method: "POST" }).middlewar
       }));
       ready = await readiness(ctx, data.channelId, videos);
     }
-    if (!ready.ready) throw new Error(`Channel Brain needs every captioned video unlocked and Read-analysed first (${ready.unlocked}/${ready.captioned} transcripts, ${ready.analysed}/${ready.captioned} Read analyses).`);
+    const nearlyReady = ready.captioned >= 3 && ready.unlocked >= ready.captioned && ready.analysed >= Math.ceil(ready.captioned * 0.9);
+    if (!ready.ready && !nearlyReady) throw new Error(`Channel Brain needs every captioned video unlocked and Read-analysed first (${ready.unlocked}/${ready.captioned} transcripts, ${ready.analysed}/${ready.captioned} Read analyses).`);
     const stats = scoreChannel(videos);
     const { routeText } = await import("./ai-router.server");
     const start = Date.now();

@@ -52,9 +52,9 @@ export function ChannelBrain({ channelId }: { channelId: string }) {
       </TabsList>
       <TabsContent value="brief" className="mt-4 space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={runBrief} disabled={busy || !d.readiness.ready}>{busy ? <Loader2 className="animate-spin" /> : <Brain />}{d.brief ? "Update channel analysis" : "Run channel analysis"}</Button>
+          <Button onClick={runBrief} disabled={busy || d.readiness.unlocked < d.readiness.captioned}>{busy ? <Loader2 className="animate-spin" /> : <Brain />}{d.brief ? "Update channel analysis" : "Run channel analysis"}</Button>
           {d.brief && <Button variant="ghost" onClick={() => download(`${channelId}-channel.md`, d.dossier ? dossierMarkdown(d.dossier, d.channelTitle, d.stats.videos) : d.brief?.markdown ?? "")}><Download />channel.md</Button>}
-          <span className="text-xs text-muted-foreground">{busy ? "Reading the whole library — this can take a few minutes." : d.readiness.ready ? "Free · one AI request over your unlocked library." : "Unlock every transcript and run Read on each video first."}</span>
+          <span className="text-xs text-muted-foreground">{busy ? "Finishing missing Reads, then reading the whole library — this can take several minutes." : d.readiness.ready ? "Free · one AI request over your unlocked library." : d.readiness.unlocked >= d.readiness.captioned ? "Free · missing Read analyses run automatically first." : "Unlock every transcript first (Videos tab → Unlock all)."}</span>
         </div>
         {!d.readiness.ready && <div className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
           <p>Requirements: <b>{d.readiness.unlocked}/{d.readiness.captioned}</b> transcripts unlocked · <b>{d.readiness.analysed}/{d.readiness.captioned}</b> Read analyses done.</p>
