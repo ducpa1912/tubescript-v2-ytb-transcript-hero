@@ -46,7 +46,7 @@ export async function availableRoutes(_settings: AnalysisSettings, tier: Analysi
     try { models = await catalog(provider); } catch { /* catalog unavailable: still try */ }
     if (models.length && !models.some((m) => m.id === model)) continue;
     const native = provider === "opencode-zen";
-    routes.push({ provider, model, nativeGoogle: native || undefined,
+    routes.push({ provider, model, nativeGoogle: native,
       endpoint: native ? `${bases[provider]}/google/v1beta/models/${model}:generateContent` : `${bases[provider]}/v1/chat/completions` });
   }
   return routes;

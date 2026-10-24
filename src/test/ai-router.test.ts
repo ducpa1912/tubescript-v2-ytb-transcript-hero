@@ -10,7 +10,7 @@ describe("routing order", () => {
     const { availableRoutes } = await import("@/lib/ai-router.server");
     const routes = await availableRoutes(DEFAULT_ANALYSIS_SETTINGS, "read");
     expect(routes.map((r) => `${r.provider}:${r.model}`)).toEqual(["opencode-go:muse-spark-1.3", "openrouter:deepseek/deepseek-v4.1-flash-1017"]);
-    expect(routes[0].endpoint).toBe("https://opencode.ai/inference/go/v1/chat/completions");
+    expect(routes[0]?.endpoint).toBe("https://opencode.ai/inference/go/v1/chat/completions");
   });
   it("routes Watch to OpenRouter Gemini 3.1 Flash Lite, then OpenCode Zen Gemini 3.5 Flash Lite", async () => {
     vi.stubEnv("OPENCODE_API_KEY", "test"); vi.stubEnv("OPENROUTER_API_KEY", "test");
@@ -18,7 +18,7 @@ describe("routing order", () => {
     const { availableRoutes } = await import("@/lib/ai-router.server");
     const routes = await availableRoutes(DEFAULT_ANALYSIS_SETTINGS, "watch");
     expect(routes.map((r) => `${r.provider}:${r.model}`)).toEqual(["openrouter:google/gemini-3.1-flash-lite", "opencode-zen:gemini-3.5-flash-lite"]);
-    expect(routes[1].nativeGoogle).toBe(true);
+    expect(routes[1]?.nativeGoogle).toBe(true);
   });
   it("skips a provider whose key is missing", async () => {
     vi.stubEnv("OPENCODE_API_KEY", ""); vi.stubEnv("OPENROUTER_API_KEY", "test");
@@ -48,7 +48,7 @@ describe("fallback reliability", () => {
     const auths: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("/models")) return Response.json({ data: [] });
-      auths.push(String((init?.headers as Record<string, string>).Authorization));
+      auths.push(String((init?.headers as Record<string, string>)["Authorization"]));
       if (url.includes("/go/")) return new Response("busy", { status: 429 });
       return Response.json({ choices: [{ message: { content: "ok" } }] });
     }));
