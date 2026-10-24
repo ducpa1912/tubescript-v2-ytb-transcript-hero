@@ -112,9 +112,9 @@ export async function routeAnalysis(input: AnalysisInput, log: (route: Route, ou
       if (!key) continue;
       const body = route.nativeGoogle ? {
         contents: [{ role: "user", parts: [{ text: prompt }, { fileData: { mimeType: "video/*", fileUri: `https://www.youtube.com/watch?v=${input.videoId}` } }] }],
-        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 10000 },
+        generationConfig: { responseMimeType: "application/json", maxOutputTokens: MAX_OUTPUT_TOKENS },
       } : {
-        model: route.model, max_tokens: 10000, reasoning: { effort: ["low", "medium", "high"].includes(process.env["ANALYSIS_REASONING_EFFORT"] ?? "") ? process.env["ANALYSIS_REASONING_EFFORT"] : "medium" }, response_format: { type: "json_object" },
+        model: route.model, max_tokens: MAX_OUTPUT_TOKENS, reasoning: { effort: "medium" }, response_format: { type: "json_object" },
         ...(input.tier === "watch" ? { provider: { only: ["Google AI Studio"], allow_fallbacks: false } } : {}),
         messages: [{ role: "user", content: input.tier === "watch" ? [{ type: "text", text: prompt }, { type: "video_url", video_url: { url: `https://www.youtube.com/watch?v=${input.videoId}` } }] : prompt }],
       };
@@ -132,6 +132,7 @@ export async function routeAnalysis(input: AnalysisInput, log: (route: Route, ou
       if (payload.choices?.[0]?.message?.refusal || payload.choices?.[0]?.finish_reason === "content_filter" || ["SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"].includes(payload.candidates?.[0]?.finishReason ?? "")) throw new AnalysisRouteError("Provider declined this analysis. No credits spent.", true);
       const text = route.nativeGoogle ? payload.candidates?.[0]?.content?.parts?.filter((p) => !p.thought).map((p) => p.text ?? "").join("") : payload.choices?.[0]?.message?.content;
       if (!text) throw new Error("Provider returned an empty response");
+      if (payload.choices?.[0]?.finish_reason === "length" || payload.candidates?.[0]?.finishReason === "MAX_TOKENS") throw new Error("Output was cut off at the token limit");
       const clean = text.trim().replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
       rawText = clean;
       const result = input.tier === "watch"
@@ -151,7 +152,7 @@ export async function routeAnalysis(input: AnalysisInput, log: (route: Route, ou
   }
   throw new Error(`Analysis unavailable; no credits spent. ${errors.join("; ") || "Providers are cooling down. Retry shortly."}`);
 }
-/** Free-only text generation for channel-level features (brief, chat, scripts). Same free Read cascade, never paid. */
+/** Text generation for channel-level features (brief, chat, scripts). Same free Read cascade, never paid. */
 export async function routeText(prompt: string, opts: { json?: boolean; maxTokens?: number; timeoutMs?: number } = {}) {
   const routes = await availableRoutes(DEFAULT_ANALYSIS_SETTINGS, "read");
   if (!routes.length) throw new Error("No AI model is available right now. Try again shortly.");
@@ -166,15 +167,18 @@ export async function routeText(prompt: string, opts: { json?: boolean; maxToken
     const key = route.provider === "openrouter" ? process.env["OPENROUTER_API_KEY"] : process.env["OPENCODE_API_KEY"];
     try {
       const response = await fetch(route.endpoint, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "Tubescript" },
-        body: JSON.stringify({ model: route.model, max_tokens: opts.maxTokens ?? 6000, reasoning: { effort: "medium" }, ...(opts.json ? { response_format: { type: "json_object" } } : {}), messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: route.model, max_tokens: Math.max(opts.maxTokens ?? 6000, 8000), reasoning: { effort: "medium" }, ...(opts.json ? { response_format: { type: "json_object" } } : {}), messages: [{ role: "user", content: prompt }] }),
         signal: AbortSignal.timeout(remaining) });
       if (!response.ok) {
         if (response.status === 429 || response.status >= 500) cooldowns.set(routeKey, Date.now() + 120000);
         throw new Error(`Provider returned ${response.status}`);
       }
-      const payload = await response.json() as { choices?: { message?: { content?: string } }[] };
+      const payload = await response.json() as { choices?: { finish_reason?: string; message?: { content?: string } }[] };
       const text = payload.choices?.[0]?.message?.content?.trim();
       if (!text) throw new Error("Empty response");
+      if (payload.choices?.[0]?.finish_reason === "length") throw new Error("Output was cut off at the token limit");
+      const body = opts.json ? text.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "") : text;
+      if (opts.json) { try { JSON.parse(body); } catch { throw new Error("Model returned incomplete JSON"); } }
       return { text: opts.json ? text.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "") : text, model: route.model };
     } catch (error) {
       const detail = error instanceof Error ? error.message : "failed";
