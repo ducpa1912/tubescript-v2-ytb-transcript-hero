@@ -9,7 +9,7 @@ describe("routing order", () => {
     vi.stubGlobal("fetch", catalogFetch());
     const { availableRoutes } = await import("@/lib/ai-router.server");
     const routes = await availableRoutes(DEFAULT_ANALYSIS_SETTINGS, "read");
-    expect(routes.map((r) => `${r.provider}:${r.model}`)).toEqual(["opencode-go:muse-spark-1.3", "openrouter:deepseek/deepseek-v4.1-flash-1017"]);
+    expect(routes.map((r) => `${r.provider}:${r.model}`)).toEqual(["opencode-go:deepseek-v4.1-flash", "openrouter:deepseek/deepseek-v4.1-flash-1017"]);
     expect(routes[0]?.endpoint).toBe("https://opencode.ai/inference/go/v1/chat/completions");
   });
   it("routes Watch to OpenRouter Gemini 3.1 Flash Lite, then OpenCode Zen Gemini 3.5 Flash Lite", async () => {
@@ -36,12 +36,12 @@ describe("fallback reliability", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("/models")) return Response.json({ data: [] });
       const body = JSON.parse(String(init?.body)); models.push(body.model);
-      if (body.model === "muse-spark-1.3") throw new DOMException("timed out", "TimeoutError");
+      if (body.model === "deepseek-v4.1-flash") throw new DOMException("timed out", "TimeoutError");
       return Response.json({ choices: [{ message: { content: JSON.stringify({ summary: "Summary", thesis: "Thesis" }) } }] });
     }));
     const { routeAnalysis } = await import("@/lib/ai-router.server");
     await routeAnalysis(input, vi.fn()); await routeAnalysis(input, vi.fn());
-    expect(models).toEqual(["muse-spark-1.3", "deepseek/deepseek-v4.1-flash-1017", "deepseek/deepseek-v4.1-flash-1017"]);
+    expect(models).toEqual(["deepseek-v4.1-flash", "deepseek/deepseek-v4.1-flash-1017", "deepseek/deepseek-v4.1-flash-1017"]);
   });
   it("Channel Brain text falls back from Go to DeepSeek with the right key", async () => {
     vi.stubEnv("OPENCODE_API_KEY", "go-key"); vi.stubEnv("OPENROUTER_API_KEY", "or-key");

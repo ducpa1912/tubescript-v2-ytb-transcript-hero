@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { ChannelDossierView } from "@/components/channel-dossier";
+import { AnalysisQueueControls } from "@/components/analysis-panel";
 import { dossierMarkdown } from "@/lib/channel-intelligence";
 import { supabase } from "@/integrations/supabase/client";
 import { askChannelBrain, generateChannelBrief, generateScript, getChannelBrain } from "@/lib/channel.functions";
@@ -51,10 +52,15 @@ export function ChannelBrain({ channelId }: { channelId: string }) {
       </TabsList>
       <TabsContent value="brief" className="mt-4 space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={runBrief} disabled={busy || withText < 3}>{busy ? <Loader2 className="animate-spin" /> : <Brain />}{d.brief ? "Update channel analysis" : "Run channel analysis"}</Button>
+          <Button onClick={runBrief} disabled={busy || !d.readiness.ready}>{busy ? <Loader2 className="animate-spin" /> : <Brain />}{d.brief ? "Update channel analysis" : "Run channel analysis"}</Button>
           {d.brief && <Button variant="ghost" onClick={() => download(`${channelId}-channel.md`, d.dossier ? dossierMarkdown(d.dossier, d.channelTitle, d.stats.videos) : d.brief?.markdown ?? "")}><Download />channel.md</Button>}
-          <span className="text-xs text-muted-foreground">{busy ? "Reading the whole library — this can take a few minutes." : withText < 3 ? "Crawl this channel first: at least 3 transcripts are needed." : "Free · uses your unlocked transcripts."}</span>
+          <span className="text-xs text-muted-foreground">{busy ? "Reading the whole library — this can take a few minutes." : d.readiness.ready ? "Free · one AI request over your unlocked library." : "Unlock every transcript and run Read on each video first."}</span>
         </div>
+        {!d.readiness.ready && <div className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
+          <p>Requirements: <b>{d.readiness.unlocked}/{d.readiness.captioned}</b> transcripts unlocked · <b>{d.readiness.analysed}/{d.readiness.captioned}</b> Read analyses done.</p>
+          {d.readiness.unlocked < d.readiness.captioned && <p className="text-xs text-muted-foreground">Open the Videos tab and use “Unlock all” (daily free allowance first, then 1 credit each).</p>}
+          {d.readiness.missingRead.length > 0 && <AnalysisQueueControls tier="read" videoIds={d.readiness.missingRead.slice(0, 200)} onDelivered={() => void brain.refetch()} />}
+        </div>}
         {d.brief ? <><p className="text-xs text-muted-foreground">Updated {new Date(d.brief.updated_at).toLocaleString()} from {d.brief.video_count} transcripts</p>{d.dossier ? <ChannelDossierView dossier={d.dossier} videos={d.stats.videos} /> : <><p className="mb-3 rounded-lg border border-warning/50 p-3 text-sm">Older analysis — update to get structured, evidence-based explanations.</p><Md text={d.brief.markdown} /></>}</>
           : <p className="text-sm text-muted-foreground">Publication context, script structure, emotional appeal and viewer needs explain relative performance. Chat and the Script lab unlock after analysis.</p>}
       </TabsContent>

@@ -10,28 +10,54 @@ import { watchResultSchema } from "@/lib/watch";
 import { WatchEvidence } from "./watch-evidence";
 import { RetentionDeconstructor } from "./retention-deconstructor";
 
+type Job = Awaited<ReturnType<typeof listAnalysisJobs>>[number];
+const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
+
 export function AnalysisQueueControls({ videoIds, onDelivered, tier, refreshWatch = false }: { videoIds: string[]; onDelivered?: () => void; tier?: AnalysisTier | undefined; refreshWatch?: boolean }) {
   const enqueue = useServerFn(enqueueAnalyses), list = useServerFn(listAnalysisJobs), process = useServerFn(processAnalysisJob), preferences = useServerFn(getAnalysisSettings);
-  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [progress, setProgress] = useState(""), [elapsed, setElapsed] = useState(0);
-  const stopped = useRef(false), mounted = useRef(true);
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [progress, setProgress] = useState("");
+  const [called, setCalled] = useState<Partial<Record<AnalysisTier, number>>>({}), [delivered, setDelivered] = useState<Partial<Record<AnalysisTier, number>>>({});
+  const [now, setNow] = useState(() => Date.now());
+  const stopped = useRef(false), mounted = useRef(true), draining = useRef(false);
   const query = useQueryClient();
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; stopped.current = true; }; }, []);
+  const ids = new Set(videoIds);
+  function track(jobs: Job[]) {
+    const mine = jobs.filter((j) => ids.has(j.video_id));
+    const c: Partial<Record<AnalysisTier, number>> = {}, d: Partial<Record<AnalysisTier, number>> = {};
+    for (const j of mine) {
+      const t = j.tier as AnalysisTier, created = new Date(j.created_at).getTime();
+      if (j.status === "pending" || j.status === "running") c[t] = Math.min(c[t] ?? Infinity, created);
+      else if (j.status === "done" && d[t] == null) d[t] = Math.round((new Date(j.updated_at).getTime() - created) / 1000);
+    }
+    if (mounted.current) { setCalled(c); setDelivered(d); }
+    return mine.filter((j) => j.status === "pending" || j.status === "running");
+  }
   useEffect(() => {
-    if (!busy) { setElapsed(0); return; }
-    const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
+    mounted.current = true;
+    // Reopened tab: detect jobs already called for these videos and resume watching them.
+    void list().then((jobs) => { if (track(jobs).length) void drain(); }).catch(() => {});
+    return () => { mounted.current = false; stopped.current = true; };
+  }, [videoIds.join(",")]);
+  const active = busy || Object.keys(called).length > 0;
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [busy]);
+  }, [active]);
   async function drain() {
-    setBusy(true); setError(null); stopped.current = false;
+    if (draining.current) return;
+    draining.current = true; setBusy(true); setError(null); stopped.current = false;
     try {
       const settings = await preferences();
       while (!stopped.current && mounted.current) {
         const jobs = await list();
+        const mineActive = track(jobs);
         const active = jobs.filter((j) => j.status === "pending" || j.status === "running");
         setProgress(`${jobs.filter((j) => j.status === "done").length} done · ${active.length} queued · ${jobs.filter((j) => j.status === "failed").length} failed`);
         if (!active.length) break;
         const ready = active.filter((j) => new Date(j.available_at).getTime() <= Date.now() && (j.status === "pending" || !j.lease_until || new Date(j.lease_until).getTime() < Date.now())).slice(0, settings.batchSize);
-        if (!ready.length) { await new Promise((r) => setTimeout(r, 1500)); continue; }
+        // Another tab/lease holds the work: just poll until it finishes.
+        if (!ready.length) { await new Promise((r) => setTimeout(r, mineActive.length ? 4000 : 1500)); continue; }
         for (let i = 0; i < ready.length && !stopped.current; i += 3) {
           const outcomes = await Promise.allSettled(ready.slice(i, i + 3).map((j) => process({ data: { jobId: j.id } })));
           const rejected = outcomes.find((r) => r.status === "rejected");
@@ -40,26 +66,31 @@ export function AnalysisQueueControls({ videoIds, onDelivered, tier, refreshWatc
         await query.invalidateQueries({ queryKey: ["account"] });
         onDelivered?.();
       }
+      track(await list());
+      onDelivered?.();
     } catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : "Queue unavailable."); }
-    finally { if (mounted.current) setBusy(false); }
+    finally { draining.current = false; if (mounted.current) setBusy(false); }
   }
-  async function start(tier: AnalysisTier) {
-    setBusy(true); setError(null);
+  async function start(t: AnalysisTier) {
+    // Lock instantly, before any network round-trip, so a double click cannot queue twice.
+    setCalled((c) => ({ ...c, [t]: Date.now() })); setBusy(true); setError(null);
     try {
       const settings = await preferences();
-      for (let i = 0; i < videoIds.length; i += settings.batchSize) await enqueue({ data: { videoIds: videoIds.slice(i, i + settings.batchSize), tier, refresh: tier === "watch" && refreshWatch } });
+      for (let i = 0; i < videoIds.length; i += settings.batchSize) await enqueue({ data: { videoIds: videoIds.slice(i, i + settings.batchSize), tier: t, refresh: t === "watch" && refreshWatch } });
       await drain();
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not queue analysis."); setBusy(false); }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not queue analysis."); setBusy(false); setCalled((c) => { const n = { ...c }; delete n[t]; return n; }); }
   }
+  const label = (t: AnalysisTier, idle: string) => called[t] != null ? `${t === "read" ? "Read" : "Watch"} · Called (${fmt(Math.floor((now - called[t]!) / 1000))})` : idle;
   return <div className="space-y-2">
     <div className="flex flex-wrap items-center gap-2">
-      {tier !== "watch" && <Button size="sm" variant="secondary" disabled={busy || !videoIds.length} onClick={() => void start("read")}><BookOpen />Read · Free</Button>}
-      {tier !== "read" && <Button size="sm" variant="outline" disabled={busy || !videoIds.length} onClick={() => void start("watch")}><Eye />{refreshWatch ? "Refresh Watch · Already unlocked" : `Watch · ${videoIds.length * 10} credits`}</Button>}
-      {busy ? <Button size="icon" variant="ghost" title="Pause queue" aria-label="Pause analysis queue" onClick={() => { stopped.current = true; }}><Pause /></Button> : <Button size="icon" variant="ghost" title="Resume queue" aria-label="Resume analysis queue" onClick={() => void drain()}><Play /></Button>}
-      {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+      {tier !== "watch" && <Button size="sm" variant="secondary" disabled={active || !videoIds.length} onClick={() => void start("read")}><BookOpen />{label("read", "Read · Free")}</Button>}
+      {tier !== "read" && <Button size="sm" variant="outline" disabled={active || !videoIds.length} onClick={() => void start("watch")}><Eye />{label("watch", refreshWatch ? "Refresh Watch · Already unlocked" : `Watch · ${videoIds.length * 10} credits`)}</Button>}
+      {busy ? <Button size="icon" variant="ghost" title="Stop watching in this tab (work continues)" aria-label="Pause analysis queue" onClick={() => { stopped.current = true; }}><Pause /></Button> : <Button size="icon" variant="ghost" title="Resume queue" aria-label="Resume analysis queue" onClick={() => void drain()}><Play /></Button>}
+      {active && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
     </div>
-    {busy && <p role="status" className="text-xs text-muted-foreground">Processing… {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")} elapsed — AI analysis can take up to 10 minutes. Please wait without starting another request.</p>}
-    {!busy && progress && <p role="status" className="text-xs text-muted-foreground">{progress}</p>}
+    {active && <p role="status" className="text-xs text-muted-foreground">Processing — AI analysis can take up to 10 minutes. You can close this tab; progress is saved and resumes when you return.</p>}
+    {!active && (delivered.read != null || delivered.watch != null) && videoIds.length === 1 && <p role="status" className="text-xs text-muted-foreground">{[delivered.read != null ? `Read delivered in ${fmt(delivered.read)}` : "", delivered.watch != null ? `Watch delivered in ${fmt(delivered.watch)}` : ""].filter(Boolean).join(" · ")}</p>}
+    {!active && progress && videoIds.length > 1 && <p role="status" className="text-xs text-muted-foreground">{progress}</p>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </div>;
 }
