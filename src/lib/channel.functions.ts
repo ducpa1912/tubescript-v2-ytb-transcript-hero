@@ -74,7 +74,23 @@ export const generateChannelBrief = createServerFn({ method: "POST" }).middlewar
     const ctx = context as unknown as Ctx;
     const [videos, project] = await Promise.all([loadChannel(ctx, data.channelId, true), ctx.supabase.from("projects").select("channel_title").eq("user_id", ctx.userId).eq("channel_id", data.channelId).maybeSingle()]);
     const withText = videos.filter((v) => v.transcript).length;
-    const ready = await readiness(ctx, data.channelId, videos);
+    let ready = await readiness(ctx, data.channelId, videos);
+    // Read is free: automatically finish missing Reads (3 at a time); individual failures are skipped, not fatal.
+    if (!ready.ready && ready.unlocked >= ready.captioned && ready.missingRead.length) {
+      const { generate } = await import("./analysis.functions");
+      const { DEFAULT_ANALYSIS_SETTINGS, ANALYSIS_VERSION } = await import("./analysis");
+      const db = await admin();
+      const queue = ready.missingRead.slice(0, 60);
+      await Promise.all([0, 1, 2].map(async () => {
+        for (let vid = queue.shift(); vid; vid = queue.shift()) {
+          try {
+            await generate(db as never, ctx.userId, vid, "read", DEFAULT_ANALYSIS_SETTINGS);
+            await db.rpc("deliver_analysis_unlock", { _user: ctx.userId, _video: vid, _tier: "read", _version: ANALYSIS_VERSION });
+          } catch (err) { await log(ctx.userId, "analysis_read", "auto-run", "failed", `${vid}: ${err instanceof Error ? err.message : "failed"}`, 0); }
+        }
+      }));
+      ready = await readiness(ctx, data.channelId, videos);
+    }
     if (!ready.ready) throw new Error(`Channel Brain needs every captioned video unlocked and Read-analysed first (${ready.unlocked}/${ready.captioned} transcripts, ${ready.analysed}/${ready.captioned} Read analyses).`);
     const stats = scoreChannel(videos);
     const { routeText } = await import("./ai-router.server");

@@ -78,7 +78,7 @@ export const enqueueAnalyses = createServerFn({ method: "POST" }).middleware([re
     return { queued: fresh.length + retries.length };
   });
 
-async function generate(db: Db, user: string, id: string, analysisTier: AnalysisTier, settings: AnalysisSettings, requestedAt?: string | null) {
+export async function generate(db: Db, user: string, id: string, analysisTier: AnalysisTier, settings: AnalysisSettings, requestedAt?: string | null) {
   const cached = await db.from("video_analyses").select("*").eq("video_id", id).eq("tier", analysisTier).eq("version", ANALYSIS_VERSION).maybeSingle();
   if (cached.error) throw new Error("Could not read analysis cache.");
   if (cached.data && (analysisTier === "read" || !watchNeedsRefresh(cached.data, requestedAt))) return cached.data;
