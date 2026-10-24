@@ -77,6 +77,8 @@ export type VideoResult = {
   route?: string;
   viewsFetched?: boolean;
   captionOrigin?: "uploader_provided" | "auto_generated";
+  /** Direct player listed caption tracks with no English one (saves a Decodo subtitle call). */
+  noEnglishConfirmed?: boolean;
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -338,11 +340,14 @@ async function extractDirect(videoId: string, base: VideoResult): Promise<VideoR
   });
   const blocked = accessBlock([player]);
   if (blocked) throw new BotCheckError(blocked, base);
-  const tracks = (player.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [])
+  const allTracks = player.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+  const tracks = allTracks
     .filter((track: any) => /^en(?:$|[-_])/i.test(String(track.languageCode ?? "")))
     .sort((a: any, b: any) => Number(a.kind === "asr") - Number(b.kind === "asr"));
   const track = tracks[0];
   if (track) base.captionOrigin = track.kind === "asr" ? "auto_generated" : "uploader_provided";
+  // Unblocked player lists caption tracks but none are English: Decodo cannot find English either, skip it.
+  if (!track && allTracks.length) { base.noEnglishConfirmed = true; return base; }
   if (!track?.baseUrl) throw new Error("YouTube English caption tracks missing");
   const url = new URL(track.baseUrl);
   if (url.protocol !== "https:" || !(url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com")))
@@ -377,7 +382,7 @@ export async function extractVideo(videoId: string, known?: string | null | Know
   let fallbackReason: string | null = null;
   try { base = await extractDirect(videoId, base); }
   catch (error) { fallbackReason = error instanceof Error ? error.message : "YouTube extraction failed"; }
-  const needsSubtitles = base.status !== "ok";
+  const needsSubtitles = base.status !== "ok" && !base.noEnglishConfirmed;
   const needsMetadata = !hasCompleteMetadata(base);
   if (!needsSubtitles && !needsMetadata) return base;
   const routes = ["youtube_direct", ...(needsSubtitles ? ["decodo_subtitles"] : []), ...(needsMetadata ? ["decodo_metadata"] : [])];
