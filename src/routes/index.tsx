@@ -10,7 +10,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { unlockTranscripts } from "@/lib/unlock.functions";
-import { ArrowDown, ArrowUp, Download, Loader2, Search, X, RotateCw } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, Loader2, Search, X, RotateCw, BookOpen, Eye } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { startScan, processBatch } from "@/lib/scan.functions";
 import { getAccount } from "@/lib/account.functions";
@@ -355,6 +355,20 @@ function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlock
   const virt = useVirtualizer({ count: view.length, getScrollElement: () => parentRef.current, estimateSize: () => 52, overscan: 12 });
   const lockedIds = locked ? view.filter((r) => r.status === "ok" && !r.transcript).map((r) => r.id) : [];
 
+  const rowIds = useMemo(() => rows.filter((r) => r.transcript).map((r) => r.id), [rows]);
+  const badges = useQuery({
+    queryKey: ["video-analyses-badges", rowIds.length, rowIds[0]],
+    enabled: signedIn && rowIds.length > 0,
+    refetchInterval: 30000,
+    queryFn: async () => {
+      const read = new Set<string>(), watch = new Set<string>();
+      for (let i = 0; i < rowIds.length; i += 200) {
+        const { data } = await supabase.from("user_analysis_unlocks").select("video_id, tier").in("video_id", rowIds.slice(i, i + 200));
+        for (const a of data ?? []) (a.tier === "watch" ? watch : read).add(a.video_id);
+      }
+      return { read, watch };
+    },
+  });
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
     rows.forEach((r) => (c[r.status] = (c[r.status] ?? 0) + 1));
@@ -441,7 +455,7 @@ function ResultsTable({ rows, heading, ready, locked = false, signedIn, onUnlock
                 style={{ transform: `translateY(${vi.start}px)` }}
               >
                 <span className="font-mono text-xs text-muted-foreground">{r.position + 1}</span>
-                <span className="min-w-0"><span className="block truncate">{r.title || r.id}</span>{mode === "intent" && snippets.get(r.id) && <span className="block truncate text-xs text-muted-foreground italic">{snippets.get(r.id)}</span>}</span>
+                <span className="min-w-0"><span className="flex items-center gap-1.5"><span className="truncate">{r.title || r.id}</span>{badges.data?.read.has(r.id) && <BookOpen aria-label="Read analysis done" className="size-3.5 shrink-0 text-primary"><title>Read analysis done</title></BookOpen>}{badges.data?.watch.has(r.id) && <Eye aria-label="Watch analysis done" className="size-3.5 shrink-0 text-success"><title>Watch analysis done</title></Eye>}</span>{mode === "intent" && snippets.get(r.id) && <span className="block truncate text-xs text-muted-foreground italic">{snippets.get(r.id)}</span>}</span>
                 <span className={`font-mono text-xs text-muted-foreground `}>{r.publish_date?.slice(0, 10) ?? "—"}</span>
                 <span className={`text-right font-mono text-xs `}>{r.views != null ? compact(r.views) : "—"}</span>
                 <span className={`text-right font-mono text-xs `}>{fmtDuration(r.duration_seconds)}</span>

@@ -17,6 +17,11 @@ export const ANALYSIS_RUN_BUDGET = 610000;
 export class AnalysisRouteError extends Error {
   constructor(message: string, public terminal = false) { super(message); }
 }
+/** OpenCode Go routes every request by session id; without it Go returns 400 MissingSessionID. */
+function providerHeaders(route: { provider: string }, key: string): Record<string, string> {
+  return { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "Tubescript",
+    ...(route.provider === "opencode-go" ? { "x-opencode-session": "tubescript" } : {}) };
+}
 async function catalog(provider: keyof typeof bases) {
   const cached = catalogs.get(provider);
   if (cached && cached.expires > Date.now()) return cached.models;
@@ -118,7 +123,7 @@ export async function routeAnalysis(input: AnalysisInput, log: (route: Route, ou
         ...(input.tier === "watch" ? { provider: { only: ["Google AI Studio"], allow_fallbacks: false } } : {}),
         messages: [{ role: "user", content: input.tier === "watch" ? [{ type: "text", text: prompt }, { type: "video_url", video_url: { url: `https://www.youtube.com/watch?v=${input.videoId}` } }] : prompt }],
       };
-      const response = await fetch(route.endpoint, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "Tubescript" }, body: JSON.stringify(body), signal: AbortSignal.timeout(Math.min(ANALYSIS_ROUTE_TIMEOUT[input.tier], remaining)) });
+      const response = await fetch(route.endpoint, { method: "POST", headers: providerHeaders(route, key), body: JSON.stringify(body), signal: AbortSignal.timeout(Math.min(ANALYSIS_ROUTE_TIMEOUT[input.tier], remaining)) });
       if (!response.ok) {
         const detail = (await response.text()).slice(0, 2000);
         console.error(`Analysis provider ${route.provider} ${response.status}: ${detail}`);
@@ -126,7 +131,8 @@ export async function routeAnalysis(input: AnalysisInput, log: (route: Route, ou
           const retryAfter = Number(response.headers.get("Retry-After"));
           cooldowns.set(routeKey, Date.now() + Math.max(120000, Number.isFinite(retryAfter) ? retryAfter * 1000 : 0));
         }
-        throw new AnalysisRouteError(`Provider returned ${response.status}`, response.status < 500 && response.status !== 429);
+        // A route-specific rejection (e.g. 400) falls through to the next model instead of stopping the job.
+        throw new AnalysisRouteError(`Provider returned ${response.status}`, response.status === 401 && ordered.length === 1);
       }
       const payload = await response.json() as { choices?: { finish_reason?: string; message?: { content?: string; refusal?: string } }[]; candidates?: { finishReason?: string; content?: { parts?: { text?: string; thought?: boolean }[] } }[]; usage?: unknown; usageMetadata?: unknown };
       if (payload.choices?.[0]?.message?.refusal || payload.choices?.[0]?.finish_reason === "content_filter" || ["SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"].includes(payload.candidates?.[0]?.finishReason ?? "")) throw new AnalysisRouteError("Provider declined this analysis. No credits spent.", true);
@@ -166,7 +172,7 @@ export async function routeText(prompt: string, opts: { json?: boolean; maxToken
     if (remaining < 5000) break;
     const key = route.provider === "openrouter" ? process.env["OPENROUTER_API_KEY"] : process.env["OPENCODE_API_KEY"];
     try {
-      const response = await fetch(route.endpoint, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "Tubescript" },
+      const response = await fetch(route.endpoint, { method: "POST", headers: providerHeaders(route, key ?? ""),
         body: JSON.stringify({ model: route.model, max_tokens: Math.max(opts.maxTokens ?? 6000, 8000), reasoning: { effort: "medium" }, ...(opts.json ? { response_format: { type: "json_object" } } : {}), messages: [{ role: "user", content: prompt }] }),
         signal: AbortSignal.timeout(remaining) });
       if (!response.ok) {
