@@ -73,7 +73,7 @@ export const generateChannelBrief = createServerFn({ method: "POST" }).middlewar
       await log(ctx.userId, "channel_brief", out.model, "success", `${withText} transcripts`, Date.now() - start);
       return { markdown: JSON.stringify(dossier) };
     } catch (e) {
-      await log(ctx.userId, "channel_brief", "openrouter", "failed", e instanceof Error ? e.message : "failed", Date.now() - start);
+      await log(ctx.userId, "channel_brief", "ai-router", "failed", e instanceof Error ? e.message : "failed", Date.now() - start);
       throw e;
     }
   });
